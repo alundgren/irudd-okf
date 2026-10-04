@@ -5,7 +5,7 @@ import { command, hash, inventory, json, outside, shuffle, write } from './lib.m
 import { verifyFreeze } from './freeze.mjs';
 import { measure, parseTrace, grade } from './metrics.mjs';
 
-export async function codexAdapter(request) {
+export async function codexAdapter(request, persistRaw = async () => {}) {
   const authSource = path.join(process.env.CODEX_HOME ?? path.join(os.homedir(), '.codex'), 'auth.json');
   const privateHome = await fs.mkdtemp(path.join(os.tmpdir(), 'okf-private-codex-'));
   await fs.chmod(privateHome, 0o700);
@@ -16,16 +16,18 @@ export async function codexAdapter(request) {
     const version = await command('codex', ['--version']);
     const args = ['exec', '--json', '--ignore-user-config', '--ignore-rules', '--ephemeral', '-m', 'gpt-6.1-sol', '-c', 'model_reasoning_effort="high"', '-c', 'project_doc_max_bytes=32768', ...(request.unsafe_pilot ? ['--dangerously-bypass-approvals-and-sandbox'] : ['--sandbox', request.writable ? 'workspace-write' : 'read-only']), '--skip-git-repo-check', '-'];
     const result = await command('codex', args, { cwd: request.cwd, env: { ...process.env, CODEX_HOME: privateHome }, input: request.prompt, timeoutMs: request.timeout_ms });
+    await persistRaw(result);
     return { version: 1, ...result, runtime_version: version.code === 0 ? version.stdout.trim() : null, runtime_command: ['codex', ...args], model: 'gpt-6.1-sol', effort: 'high', exact_model_release: null, exact_model_release_reason: 'Runtime exposes the requested model ID, not a dated underlying release.', context_limit_tokens: null, context_limit_reason: 'Codex exec JSONL did not report selected model context capacity.', private_home_policy: 'Fresh directory; blank global AGENTS; auth only; removed after run.' };
   } finally { await fs.rm(privateHome, { recursive: true, force: true }); }
 }
-export async function externalAdapter(executable, request) {
+export async function externalAdapter(executable, request, persistRaw = async () => {}) {
   const transport = await command(path.resolve(executable), [], { cwd: request.cwd, input: JSON.stringify(request) + '\n', timeoutMs: request.timeout_ms });
+  await persistRaw(transport);
   const failed = message => ({ version: 1, ...transport, adapter_transport: transport, adapter_error: message });
   if (transport.code !== 0 || transport.timed_out || transport.error) return failed(transport.error?.message ?? (transport.timed_out ? 'Adapter timed out.' : `Adapter exited ${transport.code}.`));
   try {
     const response = JSON.parse(transport.stdout);
-    if (response.version !== 1 || typeof response.stdout !== 'string' || !Number.isInteger(response.code)) return failed('Adapter response must include version 1, stdout JSONL, and integer code.');
+    if (response.version !== 1 || typeof response.stdout !== 'string' || !Number.isInteger(response.code) || response.stderr !== undefined && typeof response.stderr !== 'string') return failed('Adapter response must include version 1, string stdout and optional stderr, and integer code.');
     return { ...response, wall_time_ms: response.wall_time_ms ?? transport.wall_time_ms, timed_out: transport.timed_out || response.timed_out === true, signal: response.signal ?? transport.signal, adapter_transport: transport };
   } catch (error) { return failed(`Invalid adapter JSON: ${error.message}`); }
 }
@@ -82,7 +84,9 @@ export async function run({ workspace, evaluator, artifacts, methods, taskIds = 
       }
       stage = 'adapter';
       const liveRequest = { ...request, cwd: path.join(root, task.cwd), workspace: root };
-      response = adapter ? await externalAdapter(adapter, liveRequest) : await codexAdapter(liveRequest);
+      const persistRaw = async transport => { await write(dir, 'adapter-stdout.txt', transport.stdout); await write(dir, 'adapter-stderr.txt', transport.stderr); };
+      response = adapter ? await externalAdapter(adapter, liveRequest, persistRaw) : await codexAdapter(liveRequest, persistRaw);
+      await write(dir, 'trace.jsonl', response.stdout ?? ''); await write(dir, 'stderr.txt', response.stderr ?? '');
       stage = 'capture-diff';
       const tracked = await command('git', ['-C', root, 'diff', '--no-ext-diff', 'HEAD']);
       if (tracked.code !== 0 || tracked.error || tracked.timed_out) throw new Error('Capturing the post-run Git diff failed.');
@@ -94,6 +98,7 @@ export async function run({ workspace, evaluator, artifacts, methods, taskIds = 
     } catch (error) { failure = { stage, code: error.code ?? null, message: error.message }; }
     try {
       const trace = parseTrace(response.stdout ?? '');
+      const metrics = measure(trace.events);
       const answer = trace.events.filter(e => e.type === 'item.completed' && e.item?.type === 'agent_message').map(e => e.item.text).join('\n');
       const environmentFailure = /mount.registry lock|mount.lock permission|sandbox.*(?:failed|could not)|every (?:file.read command|filesystem read) failed/i.test(answer + (response.stderr ?? ''));
       const executionFailed = failure || response.adapter_error || response.error || response.timed_out || response.code !== 0 || trace.malformed.length || !trace.events.some(e => e.type === 'turn.completed');
@@ -104,7 +109,7 @@ export async function run({ workspace, evaluator, artifacts, methods, taskIds = 
         version: 2, id, study: 'synthetic_instrumentation_pilot', repository_id: comparison.repository_id, task_id: task.id, arm, count: manifest.count, launch_cwd: task.cwd,
         applicable_concept_ids: task.applicable_concept_ids, canonical_hash: manifest.canonical_hash, prompt_hash: comparison.prompt_hash, initial_tree_hash: hash(before), comparison_config: comparison, comparison_config_hash: hash(comparison),
         freeze_validation: { status: 'verified', freeze_sha256: verified.digest, externally_pinned: expectedFreezeHash !== undefined }, status, exit_code: response.code, signal: response.signal ?? null, timed_out: response.timed_out === true,
-        failure: failure ?? response.adapter_error ?? response.error ?? (status === 'failed' ? 'Runtime did not complete a valid turn.' : null), metrics: measure(trace.events),
+        failure: failure ?? response.adapter_error ?? response.error ?? (status === 'failed' ? 'Runtime did not complete a valid turn.' : null), metrics,
         machine_grade: status === 'completed' ? grade(task, answer, diff + JSON.stringify(untracked)) : { kind: 'not_scored_failed_run', coverage: null, task_correctness: null }, human_grade: { rater_one: null, rater_two: null, adjudication: null, status: 'pending' },
         runtime: { ...response, stdout: undefined, stderr: undefined, adapter_transport: response.adapter_transport ? { ...response.adapter_transport, stdout: undefined, stderr: undefined } : undefined },
         startup_instruction_inventory: startupInventory(before, task.cwd), changed_files: changed, deleted_files: deleted, raw_trace_parse_errors: trace.malformed,
@@ -119,6 +124,20 @@ export async function run({ workspace, evaluator, artifacts, methods, taskIds = 
       await json(path.join(artifacts, 'human-raters', `${hash(`rater:${seed}:${index}`).slice(0, 16)}.json`), { task_prompt: task.prompt, answer: anonymized, patch: diff, rubric: task.checks, execution_status: status, reviewers: [{ id: 'rater-one', grade: null }, { id: 'rater-two', grade: null }], adjudication: null, status: 'pending', blinding_limit: 'Answer wording can reveal treatment; document guesses before rating.' });
       results[index] = result; await ledger();
       process.stderr.write(`${id} ${task.id} ${arm}: ${status}\n`);
+    } catch (error) {
+      const result = {
+        ...results[index], repository_id: 'synthetic-checkout-fork', launch_cwd: task.cwd, applicable_concept_ids: task.applicable_concept_ids, canonical_hash: manifest.canonical_hash, prompt_hash: hash(request.prompt), status: 'failed', exit_code: response.code, signal: response.signal ?? null, timed_out: response.timed_out === true,
+        failure: { stage: 'processing', code: error.code ?? null, message: error.message, preceding_failure: failure },
+        freeze_validation: { status: 'verified', freeze_sha256: verified.digest, externally_pinned: expectedFreezeHash !== undefined },
+        metrics: { ...measure([]), usage_reason: 'Unavailable because runtime trace processing failed.', processing_error: error.message },
+        machine_grade: { kind: 'not_scored_failed_run', coverage: null, task_correctness: null }, human_grade: { rater_one: null, rater_two: null, adjudication: null, status: 'pending' },
+        runtime: { ...response, stdout: undefined, stderr: undefined, adapter_transport: response.adapter_transport ? { ...response.adapter_transport, stdout: undefined, stderr: undefined } : undefined }, changed_files: changed, deleted_files: deleted,
+      };
+      await write(dir, 'trace.jsonl', response.stdout ?? ''); await write(dir, 'stderr.txt', response.stderr ?? '');
+      await write(dir, 'patch.diff', diff); await json(path.join(dir, 'untracked-files.json'), untracked);
+      await json(path.join(dir, 'result.json'), result); await json(path.join(dir, 'failure.json'), result.failure);
+      results[index] = result; await ledger();
+      process.stderr.write(`${id} ${task.id} ${arm}: failed during processing\n`);
     } finally { if (fresh) await fs.rm(fresh, { recursive: true, force: true }); }
   }
   return results;

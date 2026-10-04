@@ -9,6 +9,20 @@ export function parseTrace(raw) {
   return { events, malformed };
 }
 export function measure(events) {
+  for (const event of events) {
+    const invalid = field => { const error = new Error(`Invalid runtime trace field: ${field}.`); error.code = 'INVALID_TRACE_FIELDS'; throw error; };
+    if (event.item !== undefined && (!event.item || typeof event.item !== 'object' || Array.isArray(event.item) || typeof event.item.type !== 'string')) invalid('item');
+    if (event.item?.type === 'agent_message' && event.type === 'item.completed' && typeof event.item.text !== 'string') invalid('item.text');
+    if (['command_execution', 'mcp_tool_call'].includes(event.item?.type)) {
+      if (event.item.aggregated_output !== undefined && event.item.aggregated_output !== null && typeof event.item.aggregated_output !== 'string') invalid('item.aggregated_output');
+      if (event.item.exit_code !== undefined && event.item.exit_code !== null && !Number.isInteger(event.item.exit_code)) invalid('item.exit_code');
+    }
+    if (event.usage !== undefined && event.usage !== null) {
+      if (typeof event.usage !== 'object' || Array.isArray(event.usage)) invalid('usage');
+      for (const field of ['input_tokens', 'output_tokens', 'cached_input_tokens', 'cache_write_input_tokens', 'reasoning_output_tokens']) if (event.usage[field] !== undefined && event.usage[field] !== null && (!Number.isFinite(event.usage[field]) || event.usage[field] < 0)) invalid(`usage.${field}`);
+    }
+    if (event.type === 'request.context' && (!Number.isFinite(event.logical_context_tokens) || event.logical_context_tokens < 0)) invalid('logical_context_tokens');
+  }
   const usages = events.filter(e => e.type === 'turn.completed' && e.usage).map(e => e.usage);
   const sum = field => usages.length && usages.every(u => Number.isFinite(u[field])) ? usages.reduce((total, u) => total + u[field], 0) : null;
   const input = sum('input_tokens'), cached = sum('cached_input_tokens'), output = sum('output_tokens');

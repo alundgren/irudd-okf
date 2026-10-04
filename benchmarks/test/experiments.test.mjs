@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { concepts, generate, tasks } from '../corpus.mjs';
-import { measure, pairedScaleRows } from '../metrics.mjs';
+import { measure, pairedScaleRows, parseTrace } from '../metrics.mjs';
 import { command, hash, inventory, outside, readJson } from '../lib.mjs';
 import { run } from '../run.mjs';
 import { verifyFreeze } from '../freeze.mjs';
@@ -187,4 +188,41 @@ test('adapter exits, invalid JSON, spawn failure and timeout preserve all attemp
       if (kind === 'timeout') { assert.equal(r.timed_out, true); assert.equal(r.signal, 'SIGKILL'); }
     }
   }
+});
+
+test('valid adapter JSON with invalid command output fields preserves raw streams, fails both cells and returns a failing CLI status', async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'okf-trace-fields-test-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const workspace = path.join(dir, 'workspace'), evaluator = path.join(dir, 'hidden');
+  await generate({ workspace, evaluator, methods: ['nested', 'okf-path'] });
+  const trace = [
+    { type: 'item.completed', item: { type: 'command_execution', aggregated_output: { unexpected: 'object-output' }, exit_code: 0 } },
+    { type: 'turn.completed', usage: { input_tokens: 10, output_tokens: 3, cached_input_tokens: 0 } },
+  ].map(event => JSON.stringify(event)).join('\n') + '\n';
+  assert.equal(parseTrace(trace).malformed.length, 0);
+  assert.throws(() => measure(parseTrace(trace).events), /item.aggregated_output/);
+  assert.throws(() => measure([{ type: 'item.completed', item: { type: 'mcp_tool_call', aggregated_output: { unexpected: 'object-output' } } }]), /item.aggregated_output/);
+  const wrapper = { version: 1, code: 0, stdout: trace, stderr: 'runtime-error-stream\n', model: 'fake-test-only', effort: 'high', runtime_version: 'test-1' };
+  const raw = JSON.stringify(wrapper) + '\n', adapter = path.join(dir, 'adapter.mjs');
+  await fs.writeFile(adapter, `#!/usr/bin/env node\nprocess.stdout.write(${JSON.stringify(raw)});process.stderr.write('transport-error-stream\\n');\n`);
+  await fs.chmod(adapter, 0o700);
+  const artifacts = path.join(dir, 'artifacts');
+  const rows = await run({ workspace, evaluator, artifacts, adapter, taskIds: ['architecture'] });
+  assert.equal(rows.length, 2);
+  assert.equal(rows.every(row => row.status === 'failed' && row.failure.stage === 'processing' && row.failure.code === 'INVALID_TRACE_FIELDS'), true);
+  for (const row of rows) {
+    const cell = path.join(artifacts, row.id);
+    assert.equal(await fs.readFile(path.join(cell, 'adapter-stdout.txt'), 'utf8'), raw);
+    assert.equal(await fs.readFile(path.join(cell, 'adapter-stderr.txt'), 'utf8'), 'transport-error-stream\n');
+    assert.equal(await fs.readFile(path.join(cell, 'trace.jsonl'), 'utf8'), trace);
+    assert.equal(await fs.readFile(path.join(cell, 'stderr.txt'), 'utf8'), wrapper.stderr);
+    assert.equal((await readJson(path.join(cell, 'result.json'))).machine_grade.coverage, null);
+    assert.equal((await readJson(path.join(cell, 'failure.json'))).code, 'INVALID_TRACE_FIELDS');
+    assert.equal(row.metrics.recurring_input_tokens, null);
+  }
+  assert.equal((await readJson(path.join(artifacts, 'results.json'))).every(row => row.status === 'failed'), true);
+  const cliArtifacts = path.join(dir, 'cli-artifacts');
+  const cli = await command(process.execPath, [fileURLToPath(new URL('../main.mjs', import.meta.url)), 'run', '--workspace', workspace, '--evaluator', evaluator, '--artifacts', cliArtifacts, '--adapter', adapter, '--tasks', 'architecture'], { timeoutMs: 30000 });
+  assert.equal(cli.code, 1); assert.equal(JSON.parse(cli.stdout).failed_cells, 2);
+  assert.equal((await readJson(path.join(cliArtifacts, 'results.json'))).every(row => row.status === 'failed'), true);
 });
