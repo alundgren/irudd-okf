@@ -1,5 +1,5 @@
 import { Cause, Console, Effect, Option } from 'effect';
-import { Argument, Command, Flag } from 'effect/cli';
+import { Argument, CliError, Command, Flag } from 'effect/cli';
 import { NodeRuntime, NodeServices } from '@effect/platform-node';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -67,6 +67,10 @@ const doctorCommand = Command.make('doctor', {}, () => withStore(store => Effect
 })));
 export const app = root.pipe(Command.withSubcommands([contextCommand, initCommand, bundleCommand, searchCommand, readCommand, indexCommand, writeCommand, deleteCommand, renameCommand, validateCommand(false), validateCommand(true), graphCommand, serveCommand, gitCommand, cliCommand, skillCommand, licensesCommand, doctorCommand]));
 export const renderError = (error: unknown) => Effect.sync(() => {
+  if (CliError.isCliError(error) && error._tag === 'ShowHelp') {
+    if (error.errors.length === 0) return;
+    error = new OkfError('INVALID_ARGUMENTS', error.errors.map(value => value.message).join('\n'));
+  }
   const value = error instanceof OkfError ? error : new OkfError('INVALID_ARGUMENTS', String(error));
   process.stderr.write(`${JSON.stringify({ version: 1, error: { code: value.code, message: value.message, details: value.details } })}\n`);
   process.exitCode = /CONFLICT/.test(value.code) ? 4 : /GIT|PR_|PROCESS|REMOTE/.test(value.code) ? 5 : 2;
