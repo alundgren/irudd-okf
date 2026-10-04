@@ -3,23 +3,11 @@ import MarkdownIt from 'markdown-it';
 import { parseDocument } from 'yaml';
 import type { Concept, Diagnostic, Link } from './contracts.ts';
 import { hash } from './files.ts';
+import { resolveLinkTarget } from './links.ts';
 
 const markdown = new MarkdownIt({ html: false, linkify: false });
 export const reserved = (file: string) => ['index.md', 'log.md'].includes(path.posix.basename(file));
-export function resolveLink(source: string, href: string): { target: string; external: boolean; fragment?: string; unsafe?: boolean } {
-  if (/^[a-z][a-z\d+.-]*:/i.test(href) || href.startsWith('//')) return { target: href, external: true };
-  const separator = href.search(/[?#]/);
-  const destination = separator < 0 ? href : href.slice(0, separator);
-  const fragment = href.includes('#') ? href.slice(href.indexOf('#') + 1) : undefined;
-  let decoded: string;
-  try { decoded = decodeURIComponent(destination); } catch { return { target: href, external: false, unsafe: true, fragment }; }
-  if (decoded.includes('\\') || decoded.includes('\0')) return { target: href, external: false, unsafe: true, fragment };
-  let target = decoded ? path.posix.normalize(decoded.startsWith('/') ? decoded.slice(1) : path.posix.join(path.posix.dirname(source), decoded)) : source;
-  const unsafe = target === '..' || target.startsWith('../');
-  if (target === '.') target = 'index.md';
-  else if (decoded.endsWith('/')) target = target.replace(/\/$/, '') + '/index.md';
-  return { target, external: false, fragment, unsafe };
-}
+export const resolveLink = resolveLinkTarget;
 function jsonMetadata(value: Record<string, unknown>): { value: Record<string, unknown>; adjusted: boolean } {
   const ancestors = new WeakSet<object>();
   let adjusted = false;

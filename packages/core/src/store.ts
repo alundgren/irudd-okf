@@ -3,7 +3,7 @@ import path from 'node:path';
 import MarkdownIt from 'markdown-it';
 import linkRule from 'markdown-it/lib/rules_inline/link.mjs';
 import referenceRule from 'markdown-it/lib/rules_block/reference.mjs';
-import { OkfError, type Bundle, type Concept, type ConceptSummary, type MemoryContext, type Store, type Operation, type WriteRequest, type DeleteRequest, type RenameRequest, type MutationResult } from './contracts.ts';
+import { OkfError, type Bundle, type Concept, type ConceptSummary, type MemoryContext, type Store, type Operation, type WriteRequest, type DeleteRequest, type RenameRequest, type MutationResult, type RenamePreview } from './contracts.ts';
 import { operation, guarded, scan, hash, absent, cleanPath, withLock, recovery, atomicReplace, atomicCreate, readRaw } from './files.ts';
 import { decode, WriteSchema, DeleteSchema, RenameSchema } from './schemas.ts';
 import { parseConcept, reserved, resolveLink } from './parser.ts';
@@ -177,6 +177,19 @@ export function createStore(input: MemoryContext): Store {
   }
   const store: Store = {
     context,
+    previewRename: request => operation(async () => {
+      request = decode(RenameSchema, request);
+      const bundle = select(context, request.bundle);
+      const oldPath = cleanPath(request.path), newPath = cleanPath(request.newPath);
+      if (!newPath.endsWith('.md') || reserved(newPath) || reserved(oldPath)) throw new OkfError('INVALID_PATH', 'Rename applies to concept Markdown files.');
+      const original = await requireHash(await guarded(bundle, oldPath), request.expectedHash);
+      if (original === null) throw new OkfError('NOT_FOUND', 'The file does not exist.');
+      if (oldPath !== newPath) {
+        try { await guarded(bundle, newPath); throw new OkfError('CONFLICT', 'The rename destination already exists.'); }
+        catch (error) { if (!absent(error)) throw error; }
+      }
+      return (await renamePlan(bundle.name, oldPath, newPath, original, request.updateLinks)).preview;
+    }),
     list: bundle => operation(async () => (await load(bundle, false)).filter(concept => !reserved(concept.path)).map(summary)),
     read: (bundle, file) => operation(() => read(bundle, file)),
     index: (bundle, directory = '') => operation(async () => {
@@ -289,6 +302,14 @@ export function createStore(input: MemoryContext): Store {
       return { version: 1, bundle: bundle.name, path: cleanPath(request.path), hash: null, changedPaths: [cleanPath(request.path)], recoveryPath };
     });
   }
+  async function renamePlan(bundle: string, oldPath: string, newPath: string, original: string, updateLinks?: boolean) {
+    const documents = updateLinks ? await load(bundle) : [];
+    const updates = documents.filter(concept => concept.path !== oldPath).map(concept => ({ concept, raw: rewriteLinks(concept.raw, concept.path, oldPath, newPath) })).filter(item => item.raw !== item.concept.raw);
+    const newRaw = updateLinks ? rewriteLinks(original, oldPath, oldPath, newPath, true) : original;
+    const changes = oldPath === newPath ? [] : [{ path: oldPath, before: original, after: '' }, { path: newPath, before: '', after: newRaw }, ...updates.map(update => ({ path: update.concept.path, before: update.concept.raw, after: update.raw }))];
+    const preview: RenamePreview = { version: 1, bundle, path: oldPath, newPath, changes, previewHash: hash(JSON.stringify({ bundle, oldPath, newPath, changes })) };
+    return { updates, newRaw, preview };
+  }
   async function rename(request: RenameRequest): Promise<MutationResult> {
     const bundle = select(context, request.bundle);
     writable(bundle, request);
@@ -298,13 +319,12 @@ export function createStore(input: MemoryContext): Store {
     if (oldPath === newPath) return { version: 1, bundle: bundle.name, path: oldPath, hash: request.expectedHash, changedPaths: [] };
     return withLock(bundle.root, async () => {
       const source = await guarded(bundle, oldPath);
-      const destination = await guarded(bundle, newPath, true);
       const original = await requireHash(source, request.expectedHash);
       if (original === null) throw new OkfError('NOT_FOUND', 'The file does not exist.');
+      const { updates, newRaw, preview } = await renamePlan(bundle.name, oldPath, newPath, original, request.updateLinks);
+      if (request.previewHash !== undefined && request.previewHash !== preview.previewHash) throw new OkfError('CONFLICT', 'Files affected by this rename changed after preview. Review a fresh preview.');
+      const destination = await guarded(bundle, newPath, true);
       await requireHash(destination, null);
-      const documents = request.updateLinks ? await load(bundle.name) : [];
-      const updates = documents.filter(concept => concept.path !== oldPath).map(concept => ({ concept, raw: rewriteLinks(concept.raw, concept.path, oldPath, newPath) })).filter(item => item.raw !== item.concept.raw);
-      const newRaw = request.updateLinks ? rewriteLinks(original, oldPath, oldPath, newPath, true) : original;
       const recoveryPath = await recovery(bundle.root, original);
       for (const update of updates) { await requireHash(await guarded(bundle, update.concept.path), update.concept.hash); await recovery(bundle.root, update.concept.raw); }
       const completed: Array<{ file: string; original: string; written: string }> = [];

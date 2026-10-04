@@ -14,7 +14,8 @@ export interface Graph { version: 1; nodes: ConceptSummary[]; edges: Array<{ fro
 export interface ValidationResult { version: 1; files: number; errors: number; warnings: number; diagnostics: Diagnostic[] }
 export interface WriteRequest { bundle: string; path: string; raw: string; expectedHash: string | null; authorizePersonal?: boolean }
 export interface DeleteRequest { bundle: string; path: string; expectedHash: string; authorizePersonal?: boolean }
-export interface RenameRequest extends DeleteRequest { newPath: string; updateLinks?: boolean }
+export interface RenameRequest extends DeleteRequest { newPath: string; updateLinks?: boolean; previewHash?: string }
+export interface RenamePreview { version: 1; bundle: string; path: string; newPath: string; previewHash: string; changes: Array<{ path: string; before: string; after: string }> }
 export interface MutationResult { version: 1; bundle: string; path: string; hash: string | null; changedPaths: string[]; recoveryPath?: string }
 export class OkfError extends Error {
   readonly _tag = 'OkfError';
@@ -32,10 +33,11 @@ export interface Store {
   save(request: WriteRequest): Operation<MutationResult>;
   remove(request: DeleteRequest): Operation<MutationResult>;
   rename(request: RenameRequest): Operation<MutationResult>;
+  previewRename(request: RenameRequest): Operation<RenamePreview>;
 }
 export interface GitFile { path: string; status: string }
 export interface GitStatus { version: 1; available: boolean; root: string | null; branch: string | null; remote: string | null; files: GitFile[]; reason?: string }
-export interface GitPreview { version: 1; token: string; bundle: string; base: string; branch: string; paths: string[]; diff: string; expiresAt: string; warnings: string[] }
+export interface GitPreview { version: 1; token: string; bundle: string; base: string; baseRef: string; repository: string; branch: string; paths: string[]; diff: string; expiresAt: string; warnings: string[] }
 export interface PullRequestResult { version: 1; url: string; branch: string; worktree: string; state: 'created' | 'existing' }
 
 // HTTP wire types share file semantics with the CLI. All mutations require the
