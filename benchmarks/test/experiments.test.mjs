@@ -135,6 +135,43 @@ test('synthetic commits disable inherited detached maintenance and remove every 
   assert.equal(events.some(automatic), false, 'synthetic commits must not launch maintenance or automatic GC');
 });
 
+test('checkout removal failure retains raw evidence, fails only that cell and gives a failing CLI status', async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'okf-cleanup-failure-test-'));
+  const retainedFile = path.join(dir, 'retained-directory.txt');
+  t.after(async () => {
+    const retained = await fs.readFile(retainedFile, 'utf8').catch(() => null);
+    if (retained) await fs.rm(retained, { recursive: true, force: true });
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+  const workspace = path.join(dir, 'workspaces'), evaluator = path.join(dir, 'hidden'), artifacts = path.join(dir, 'artifacts');
+  await generate({ workspace, evaluator, methods: ['nested', 'okf-path'] });
+  const preload = path.join(dir, 'inject-cleanup-failure.mjs');
+  await fs.writeFile(preload, `import fs from 'node:fs/promises';import path from 'node:path';const remove=fs.rm;let injected=false;fs.rm=async(target,options)=>{if(!injected&&path.basename(target).startsWith('okf-agent-run-')){injected=true;await fs.writeFile(${JSON.stringify(retainedFile)},target);throw Object.assign(new Error('Injected removal failure'),{code:'ENOTEMPTY'});}return remove(target,options);};\n`);
+  const trace = JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'test-only completed answer' } }) + '\n' + JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 10, output_tokens: 3, cached_input_tokens: 0 } }) + '\n';
+  const raw = JSON.stringify({ version: 1, code: 0, stdout: trace, runtime_version: 'fake-test-only' }) + '\n';
+  const adapter = path.join(dir, 'adapter.mjs');
+  await fs.writeFile(adapter, `#!/usr/bin/env node\nprocess.stdout.write(${JSON.stringify(raw)});process.stderr.write('raw-transport-error-stream\\n');\n`);
+  await fs.chmod(adapter, 0o700);
+  const cli = await command(process.execPath, ['--import', preload, fileURLToPath(new URL('../main.mjs', import.meta.url)), 'run', '--workspace', workspace, '--evaluator', evaluator, '--artifacts', artifacts, '--adapter', adapter, '--tasks', 'architecture'], { timeoutMs: 30000 });
+  assert.equal(cli.code, 1, cli.stderr); assert.equal(JSON.parse(cli.stdout).failed_cells, 1);
+  const rows = await readJson(path.join(artifacts, 'results.json'));
+  assert.equal(rows.length, 2); assert.equal(rows[0].status, 'failed'); assert.equal(rows[1].status, 'completed');
+  assert.equal(rows[0].failure.stage, 'cleanup'); assert.equal(rows[0].failure.code, 'ENOTEMPTY'); assert.equal(rows[0].machine_grade.coverage, null);
+  assert.equal(rows[0].metrics.recurring_input_tokens, 10);
+  const retained = await fs.readFile(retainedFile, 'utf8');
+  assert.equal(rows[0].failure.directory, retained); assert.equal((await fs.stat(retained)).isDirectory(), true);
+  for (const row of rows) {
+    const cell = path.join(artifacts, row.id);
+    assert.equal(await fs.readFile(path.join(cell, 'adapter-stdout.txt'), 'utf8'), raw);
+    assert.equal(await fs.readFile(path.join(cell, 'adapter-stderr.txt'), 'utf8'), 'raw-transport-error-stream\n');
+    assert.equal(await fs.readFile(path.join(cell, 'trace.jsonl'), 'utf8'), trace);
+    assert.equal((await readJson(path.join(cell, 'result.json'))).status, row.status);
+  }
+  assert.equal((await readJson(path.join(artifacts, rows[0].id, 'failure.json'))).stage, 'cleanup');
+  const packets = await fs.readdir(path.join(artifacts, 'human-raters'));
+  assert.deepEqual((await Promise.all(packets.map(file => readJson(path.join(artifacts, 'human-raters', file))))).map(packet => packet.execution_status).sort(), ['completed', 'failed']);
+});
+
 test('personal exposure is explicit, scoped and adds no product precedence field', async t => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'okf-personal-test-'));
   t.after(() => fs.rm(dir, { recursive: true, force: true }));

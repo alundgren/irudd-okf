@@ -97,6 +97,8 @@ export async function run({ workspace, evaluator, artifacts, methods, taskIds = 
       deleted = before.filter(file => !after.some(a => a.path === file.path));
       untracked = await Promise.all(changed.filter(file => !before.some(b => b.path === file.path)).map(async file => ({ path: file.path, content: await fs.readFile(path.join(root, file.path), 'utf8') })));
     } catch (error) { failure = { stage, code: error.code ?? null, message: error.message }; }
+    try { if (fresh) await fs.rm(fresh, { recursive: true, force: true }); }
+    catch (error) { failure = { stage: 'cleanup', code: error.code ?? null, message: error.message, directory: fresh, preceding_failure: failure }; }
     try {
       const trace = parseTrace(response.stdout ?? '');
       const metrics = measure(trace.events);
@@ -139,7 +141,7 @@ export async function run({ workspace, evaluator, artifacts, methods, taskIds = 
       await json(path.join(dir, 'result.json'), result); await json(path.join(dir, 'failure.json'), result.failure);
       results[index] = result; await ledger();
       process.stderr.write(`${id} ${task.id} ${arm}: failed during processing\n`);
-    } finally { if (fresh) await fs.rm(fresh, { recursive: true, force: true }); }
+    }
   }
   return results;
 }
