@@ -12,7 +12,7 @@ export const within = (root: string, target: string) => target === root || targe
 export function cleanPath(input: string): string {
   if (!input || input.includes('\0') || input.includes('\\') || path.isAbsolute(input) || input.split('/').includes('..')) throw new OkfError('UNSAFE_PATH', 'Use a relative path within the bundle.', { path: input });
   const normalized = path.posix.normalize(input);
-  if (normalized === '.' || normalized.startsWith('../') || normalized.startsWith('.irudd-okf/')) throw new OkfError('UNSAFE_PATH', 'The path is reserved or outside the bundle.', { path: input });
+  if (normalized === '.' || normalized.startsWith('../') || normalized.startsWith('.irudd-okf/') || normalized.startsWith('.git/')) throw new OkfError('UNSAFE_PATH', 'The path is reserved or outside the bundle.', { path: input });
   return normalized;
 }
 export async function guarded(bundle: Bundle, input: string, create = false): Promise<string> {
@@ -99,4 +99,16 @@ export async function readRaw(bundle: Bundle, relative: string): Promise<string>
   if (await fs.realpath(file) !== file) throw new OkfError('UNSAFE_PATH', 'Symbolic links are not supported inside bundles.', { path: relative });
   const handle = await fs.open(file, constants.O_RDONLY | constants.O_NOFOLLOW);
   try { return await handle.readFile('utf8'); } finally { await handle.close(); }
+}
+
+export async function ensureDirectory(absolute: string): Promise<void> {
+  const parsed = path.parse(path.resolve(absolute));
+  let current = parsed.root;
+  for (const component of path.resolve(absolute).slice(parsed.root.length).split(path.sep)) {
+    if (!component) continue;
+    current = path.join(current, component);
+    await fs.mkdir(current).catch(error => { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; });
+    const info = await fs.lstat(current);
+    if (!info.isDirectory() || info.isSymbolicLink()) throw new OkfError('UNSAFE_PATH', 'Bundle directory parents must not be symbolic links.', { path: absolute });
+  }
 }

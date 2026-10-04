@@ -22,10 +22,11 @@ afterEach(async () => { vi.restoreAllMocks(); await Promise.all(directories.spli
 describe('OKF parsing and retrieval', () => {
   it('accepts minimal and unknown metadata while reserving index and log at every level', async () => {
     const f = await fixture();
+    await f.write('.hidden.md', '---\ntype: Rule\n---\n');
     await f.write('minimal.md', '---\ntype: Future Type\nproducer: { nested: [1, 2] } # keep this comment\nverified: { by: "human:ada" }\n---\nHello\n');
     await f.write('index.md', '---\nokf_version: "9.2"\n---\n# Knowledge\n');
     await f.write('nested/index.md', '# Nested\n'); await f.write('nested/log.md', '# Changes\n\n## 2026-10-04\n- Created\n');
-    expect((await run(f.store.list())).map(item => item.path)).toEqual(['minimal.md']);
+    expect((await run(f.store.list())).map(item => item.path)).toEqual(['.hidden.md', 'minimal.md']);
     const concept = await run(f.store.read('repo', 'minimal.md'));
     expect(concept.metadata.producer).toEqual({ nested: [1, 2] }); expect(concept.metadata.verified).toEqual([{ by: 'human:ada' }]);
     expect((await run(f.store.validate())).errors).toBe(0);
@@ -148,6 +149,12 @@ describe('scope and safe mutations', () => {
     await expect(run(f.store.rename({ bundle: 'repo', path: 'old.md', newPath: 'new.md', expectedHash: old.hash }))).rejects.toMatchObject({ code: 'CONFLICT' });
     await fs.mkdir(path.join(f.bundle, '.irudd-okf'), { recursive: true }); await fs.writeFile(path.join(f.bundle, '.irudd-okf', 'write.lock'), 'active');
     await expect(run(f.store.save({ bundle: 'repo', path: 'created.md', raw: document('Created'), expectedHash: null }))).rejects.toMatchObject({ code: 'LOCKED' });
+  });
+  it('rejects symlinked initialization parents before creating folders', async () => {
+    const f = await fixture(); const outside = path.join(f.root, 'outside'); await fs.mkdir(outside);
+    const link = path.join(f.root, 'link'); await fs.symlink(outside, link);
+    await expect(run(initializeBundle(path.join(link, 'created')))).rejects.toMatchObject({ code: 'UNSAFE_PATH' });
+    await expect(fs.stat(path.join(outside, 'created'))).rejects.toMatchObject({ code: 'ENOENT' });
   });
   it('initializes exclusively and never alters existing files', async () => {
     const f = await fixture(); await run(initializeBundle(f.bundle)); const raw = await fs.readFile(path.join(f.bundle, 'index.md'), 'utf8');

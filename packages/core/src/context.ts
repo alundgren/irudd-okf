@@ -5,7 +5,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { OkfError, type Bundle, type MemoryContext, type Operation } from './contracts.ts';
 import { ConfigSchema, decode } from './schemas.ts';
-import { absent, operation, within, withLock, atomicReplace } from './files.ts';
+import { absent, operation, within, withLock, atomicReplace, ensureDirectory } from './files.ts';
 
 interface Config { version: 1; bundles: Array<{ name: string; path: string; personal?: boolean }>; active: string[] }
 const globalPath = () => path.join(os.homedir(), '.config', 'irudd-okf', 'config.json');
@@ -72,7 +72,7 @@ export function resolveContext(options: { cwd?: string; configPath?: string; exp
 export function initializeBundle(root: string): Operation<{ root: string }> {
   return operation(async () => {
     const absolute = path.resolve(root);
-    await fs.mkdir(absolute, { recursive: true });
+    await ensureDirectory(absolute);
     const bundle = await mount('new', absolute, 'explicit');
     await fs.writeFile(path.join(bundle.root, 'index.md'), '---\nokf_version: "0.2"\n---\n\n# Knowledge\n', { flag: 'wx' }).catch(error => { if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new OkfError('ALREADY_EXISTS', 'Initialization never replaces an existing index.', { root: absolute }); throw error; });
     return { root: bundle.root };
