@@ -4,7 +4,7 @@ export function parseTrace(raw) {
   const events = [], malformed = [];
   for (const [index, line] of raw.split('\n').entries()) {
     if (!line.trim()) continue;
-    try { events.push(JSON.parse(line)); } catch { malformed.push(index + 1); }
+    try { const event = JSON.parse(line); if (!event || typeof event !== 'object' || Array.isArray(event) || typeof event.type !== 'string') throw new Error('Not a runtime event.'); events.push(event); } catch { malformed.push(index + 1); }
   }
   return { events, malformed };
 }
@@ -34,15 +34,32 @@ export function measure(events) {
 }
 export function pairedScaleRows(results) {
   const rows = [];
-  const key = r => JSON.stringify([r.arm, r.task_id, r.launch_cwd, r.applicable_concept_ids, r.repetition ?? 0]);
+  const key = r => JSON.stringify([r.repository_id, r.arm, r.task_id, r.launch_cwd, r.repetition ?? 0]);
   const groups = new Map();
   for (const result of results) {
     const group = groups.get(key(result)) ?? [];
     group.push(result); groups.set(key(result), group);
   }
   for (const group of groups.values()) for (const [from, to] of [[100, 1000], [1000, 10000], [100, 10000]]) {
-    const a = group.find(r => r.count === from), b = group.find(r => r.count === to);
-    rows.push({ key: key(group[0]), from, to, status: a && b ? 'paired' : 'missing_cell', input_change: a && b && a.metrics.recurring_input_tokens !== null && b.metrics.recurring_input_tokens !== null ? b.metrics.recurring_input_tokens - a.metrics.recurring_input_tokens : null, coverage_change: a && b ? b.machine_grade.coverage - a.machine_grade.coverage : null });
+    const left = group.filter(r => r.count === from), right = group.filter(r => r.count === to);
+    const [a] = left, [b] = right;
+    let status = 'paired', reasons = [];
+    if (left.length > 1 || right.length > 1) { status = 'rejected_duplicate_cells'; reasons.push('A scale has multiple observations for the same repository, arm, task, cwd and repetition.'); }
+    else if (!a || !b) status = 'missing_cell';
+    else if ([a, b].some(r => r.status !== 'completed' || r.timed_out)) { status = 'rejected_failed_cell'; reasons.push('Both executions must complete without timeout.'); }
+    else if ([a, b].some(r => r.freeze_validation?.status !== 'verified' || !r.freeze_validation.freeze_sha256)) { status = 'rejected_unverified_freeze'; reasons.push('Legacy or unverified freezes cannot produce scale deltas.'); }
+    else if ([a, b].some(r => r.exit_code !== 0 || r.runtime?.code !== 0 || r.signal || r.runtime?.signal || r.runtime?.timed_out || r.failure !== null)) { status = 'rejected_failed_cell'; reasons.push('Both executions and their runtime records must have exit 0, no signal, no timeout and no failure.'); }
+    else {
+      const fields = ['repository_id', 'prompt_hash', 'rubric_hash', 'fixed_facts_hash', 'opportunity_hash', 'assigned_personal_hash', 'applicable_concept_ids', 'conflict_convention', 'personal', 'active_bundles', 'runtime_settings'];
+      for (const r of [a, b]) {
+        const config = r.comparison_config;
+        if (!config || hash(config) !== r.comparison_config_hash || fields.some(field => config[field] === undefined) || ['model', 'effort', 'runtime_version', 'adapter_digest'].some(field => !config.runtime_settings?.[field])) reasons.push(`Run ${r.id ?? '?'} lacks intact comparison configuration and actual runtime identity.`);
+        if (config && (config.prompt_hash !== r.prompt_hash || hash(config.applicable_concept_ids) !== hash(r.applicable_concept_ids) || config.runtime_settings?.model !== r.runtime?.model || config.runtime_settings?.effort !== r.runtime?.effort || config.runtime_settings?.runtime_version !== r.runtime?.runtime_version || hash(config.runtime_settings?.runtime_command ?? null) !== hash(r.runtime?.runtime_command ?? null))) reasons.push(`Run ${r.id ?? '?'} result metadata differs from comparison configuration.`);
+      }
+      if (a.comparison_config_hash !== b.comparison_config_hash) reasons.push('Task prompt, rubric, fixed facts, source opportunity, scope convention or runtime configuration differs across scales.');
+      if (reasons.length) status = 'rejected_mismatch';
+    }
+    rows.push({ key: key(group[0]), from, to, status, reasons, run_ids: [...left, ...right].map(r => r.id ?? null), input_change: status === 'paired' && Number.isFinite(a.metrics?.recurring_input_tokens) && Number.isFinite(b.metrics?.recurring_input_tokens) ? b.metrics.recurring_input_tokens - a.metrics.recurring_input_tokens : null, coverage_change: status === 'paired' && Number.isFinite(a.machine_grade?.coverage) && Number.isFinite(b.machine_grade?.coverage) ? b.machine_grade.coverage - a.machine_grade.coverage : null });
   }
   return rows;
 }

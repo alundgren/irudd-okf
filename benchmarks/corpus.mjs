@@ -114,7 +114,11 @@ export async function generate({ workspace, evaluator, count = 100, seed = 20261
     manifests.push(manifest);
   }
   await json(path.join(evaluator, 'canonical.json'), canonical);
-  await json(path.join(evaluator, 'tasks.hidden.json'), tasks.map(t => ({ ...t, applicable_concept_ids: t.relevant.map(i => canonical[i].id) })));
-  await json(path.join(evaluator, 'freeze.json'), { status: 'instrumentation_only_human_review_pending', count, seed, canonical_hash: hash(canonical), task_hash: hash(tasks), methods, personal, convention, randomization: shuffle(methods, seed), synthetic_rule_review: 'pending_all_instances', source_backed_10000: { status: 'unavailable', reason: 'No human-audited source-backed concept corpus has been prepared.' } });
+  const hiddenTasks = tasks.map(t => ({ ...t, applicable_concept_ids: t.relevant.map(i => canonical[i].id), fixed_facts_hash: hash(t.relevant.map(i => canonical[i])) }));
+  await json(path.join(evaluator, 'tasks.hidden.json'), hiddenTasks);
+  const fileHash = async name => hash(await fs.readFile(path.join(evaluator, name)));
+  const manifestHashes = Object.fromEntries(await Promise.all(methods.map(async arm => [arm, await fileHash(`${arm}.manifest.json`)])));
+  await json(path.join(evaluator, 'freeze.json'), { version: 2, status: 'instrumentation_only_human_review_pending', count, seed, canonical_hash: hash(canonical), canonical_sha256: await fileHash('canonical.json'), task_hash: hash(hiddenTasks), task_sha256: await fileHash('tasks.hidden.json'), manifest_sha256s: manifestHashes, methods, personal, convention, randomization: shuffle(methods, seed), synthetic_rule_review: 'pending_all_instances', source_backed_10000: { status: 'unavailable', reason: 'No human-audited source-backed concept corpus has been prepared.' } });
+  await fs.writeFile(path.join(evaluator, 'freeze.sha256'), await fileHash('freeze.json') + '\n');
   return manifests;
 }

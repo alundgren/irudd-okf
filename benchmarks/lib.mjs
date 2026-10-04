@@ -33,15 +33,38 @@ export async function inventory(root, { allowSymlinks = false } = {}) {
   return entries;
 }
 export function command(executable, args, options = {}) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(executable, args, { cwd: options.cwd, env: options.env ?? process.env, stdio: ['pipe', 'pipe', 'pipe'] });
-    let stdout = '', stderr = '';
-    const timer = setTimeout(() => child.kill('SIGTERM'), options.timeoutMs ?? 300000);
+  return new Promise(resolve => {
+    const start = performance.now(), grouped = process.platform !== 'win32';
+    let child, stdout = '', stderr = '', timedOut = false, processError = null, finished = false;
+    let timeout, escalation, deadline;
+    const stop = signal => {
+      if (!child?.pid) return;
+      try { grouped ? process.kill(-child.pid, signal) : child.kill(signal); } catch (error) { if (error.code !== 'ESRCH') processError ??= { code: error.code, message: error.message }; }
+      if (!grouped && signal === 'SIGKILL') spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' }).on('error', () => {});
+    };
+    const finish = (code, signal, forced = false) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timeout); clearTimeout(escalation); clearTimeout(deadline);
+      // The detached process group belongs to this invocation, including its ordinary descendants.
+      stop('SIGKILL');
+      child?.stdin.destroy(); child?.stdout.destroy(); child?.stderr.destroy(); child?.unref();
+      resolve({ code, signal, stdout, stderr, timed_out: timedOut, error: processError, wall_time_ms: performance.now() - start, process_tree_cleanup: grouped ? 'SIGKILL to owned process group; descendants that create another group are outside this cleanup boundary' : 'taskkill /T /F on Windows', forced_stream_close: forced });
+    };
+    try { child = spawn(executable, args, { cwd: options.cwd, env: options.env ?? process.env, detached: grouped, stdio: ['pipe', 'pipe', 'pipe'] }); }
+    catch (error) { processError = { code: error.code, message: error.message }; finish(null, null); return; }
+    const grace = options.killGraceMs ?? 100;
+    timeout = setTimeout(() => {
+      timedOut = true; stop('SIGTERM');
+      escalation = setTimeout(() => stop('SIGKILL'), grace);
+      // A descendant that escaped the group can keep inherited pipes open. Do not wait forever.
+      deadline = setTimeout(() => finish(child.exitCode, child.signalCode, true), grace + 100);
+    }, options.timeoutMs ?? 300000);
     child.stdout.on('data', data => { stdout += data; });
     child.stderr.on('data', data => { stderr += data; });
-    child.stdin.on('error', error => { if (error.code !== 'EPIPE') reject(error); });
-    child.on('error', reject);
-    child.on('close', code => { clearTimeout(timer); resolve({ code, stdout, stderr }); });
+    child.stdin.on('error', error => { if (error.code !== 'EPIPE') processError = { code: error.code, message: error.message }; });
+    child.on('error', error => { processError = { code: error.code, message: error.message }; });
+    child.on('close', finish);
     child.stdin.end(options.input ?? '');
   });
 }

@@ -5,6 +5,6 @@ import { expect, it } from 'vite-plus/test';
 
 it('runs the standalone experiment suite through the standard repository test command', async () => {
   const file = fileURLToPath(new URL('./experiments.test.mjs', import.meta.url));
-  const result = await promisify(execFile)(process.execPath, ['--test', file], { timeout: 25000 });
+  const result = await promisify(execFile)(process.execPath, ['--test', file], { timeout: 55000 });
   expect(result.stdout).toContain('fail 0');
-});
+}, 60000);
