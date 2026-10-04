@@ -78,8 +78,9 @@ export async function run({ workspace, evaluator, artifacts, methods, taskIds = 
       await fs.cp(path.join(workspace, arm), root, { recursive: true });
       before = await inventory(root);
       if (hash(before) !== hash(manifest.generated_inventory)) throw new Error('Copied workspace differs from the verified freeze.');
-      for (const args of [['init', '--quiet', root], ['-C', root, 'add', '.'], ['-C', root, '-c', 'user.name=Benchmark', '-c', 'user.email=benchmark@example.invalid', 'commit', '--quiet', '-m', 'Frozen synthetic fixture']]) {
-        const git = await command('git', args);
+      // Detached maintenance can recreate Git object directories while the synthetic repository is removed.
+      for (const args of [['init', '--quiet', root], ['-C', root, 'config', '--local', 'maintenance.auto', 'false'], ['-C', root, 'config', '--local', 'gc.auto', '0'], ['-C', root, 'add', '.'], ['-C', root, '-c', 'user.name=Benchmark', '-c', 'user.email=benchmark@example.invalid', 'commit', '--quiet', '-m', 'Frozen synthetic fixture']]) {
+        const git = await command('git', ['-c', 'maintenance.auto=false', '-c', 'gc.auto=0', ...args]);
         if (git.code !== 0 || git.error || git.timed_out) { response = { ...response, ...git }; throw new Error('Preparing the synthetic Git tree failed.'); }
       }
       stage = 'adapter';

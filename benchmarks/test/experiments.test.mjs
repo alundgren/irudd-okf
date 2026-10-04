@@ -102,6 +102,39 @@ test('external adapter receives no oracle; fresh runs contain only assigned scop
   await assert.rejects(run({ workspace, evaluator, artifacts, adapter: executable, methods: ['nested'], taskIds: ['architecture'] }), /Frozen workspace changed/);
 });
 
+test('synthetic commits disable inherited detached maintenance and remove every completed checkout', async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'okf-git-maintenance-test-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const workspace = path.join(dir, 'workspaces'), evaluator = path.join(dir, 'hidden'), artifacts = path.join(dir, 'artifacts');
+  await generate({ workspace, evaluator, methods: ['nested', 'okf-path'] });
+  const globalConfig = path.join(dir, 'gitconfig'), controlTrace = path.join(dir, 'control-trace.jsonl'), trace = path.join(dir, 'trace.jsonl');
+  await fs.writeFile(globalConfig, '[maintenance]\n auto = true\n autoDetach = true\n[gc]\n auto = 1\n autoDetach = true\n');
+  const env = { ...process.env, GIT_CONFIG_GLOBAL: globalConfig, GIT_CONFIG_NOSYSTEM: '1', GIT_TRACE2_EVENT: trace };
+  const control = path.join(dir, 'control');
+  for (const args of [['init', '--quiet', control], ['-C', control, '-c', 'user.name=Benchmark', '-c', 'user.email=benchmark@example.invalid', '-c', 'maintenance.autoDetach=false', '-c', 'gc.autoDetach=false', 'commit', '--quiet', '--allow-empty', '-m', 'Trace control']]) {
+    const result = await command('git', args, { env: { ...env, GIT_TRACE2_EVENT: controlTrace } });
+    assert.equal(result.code, 0, result.stderr);
+  }
+  const automatic = event => event.event === 'child_start' && event.argv?.includes('--auto') && event.argv.some(arg => arg === 'maintenance' || arg === 'gc');
+  assert.equal((await fs.readFile(controlTrace, 'utf8')).trim().split('\n').map(JSON.parse).some(automatic), true, 'control commit must prove the trace observes automatic maintenance');
+  const adapter = path.join(dir, 'adapter.mjs');
+  await fs.writeFile(adapter, `#!/usr/bin/env node\nimport {execFileSync} from 'node:child_process';let input='';for await(const c of process.stdin)input+=c;const request=JSON.parse(input);const git=args=>execFileSync('git',['-C',request.workspace,...args],{encoding:'utf8'}).trim();if(git(['config','--local','--bool','maintenance.auto'])!=='false'||git(['config','--local','--int','gc.auto'])!=='0'||git(['rev-list','--count','HEAD'])!=='1')process.exit(3);console.log(JSON.stringify({version:1,code:0,stdout:JSON.stringify({type:'item.completed',item:{type:'agent_message',text:request.workspace}})+'\\n'+JSON.stringify({type:'turn.completed',usage:{input_tokens:1,output_tokens:1,cached_input_tokens:0}})+'\\n',runtime_version:'fake-test-only'}));\n`);
+  await fs.chmod(adapter, 0o700);
+  const cli = await command(process.execPath, [fileURLToPath(new URL('../main.mjs', import.meta.url)), 'run', '--workspace', workspace, '--evaluator', evaluator, '--artifacts', artifacts, '--adapter', adapter, '--tasks', 'architecture'], { env, timeoutMs: 30000 });
+  assert.equal(cli.code, 0, cli.stderr);
+  assert.equal(JSON.parse(cli.stdout).failed_cells, 0);
+  const rows = await readJson(path.join(artifacts, 'results.json'));
+  assert.equal(rows.length, 2);
+  assert.equal(rows.every(row => row.status === 'completed'), true);
+  for (const row of rows) {
+    const checkout = (await fs.readFile(path.join(artifacts, row.id, 'answer.txt'), 'utf8')).trim();
+    await assert.rejects(fs.stat(checkout), { code: 'ENOENT' });
+  }
+  const events = (await fs.readFile(trace, 'utf8')).trim().split('\n').map(JSON.parse);
+  assert.equal(events.filter(event => event.event === 'start' && event.argv?.includes('commit')).length, 2);
+  assert.equal(events.some(automatic), false, 'synthetic commits must not launch maintenance or automatic GC');
+});
+
 test('personal exposure is explicit, scoped and adds no product precedence field', async t => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'okf-personal-test-'));
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
