@@ -3,7 +3,7 @@ import { Effect, Fiber, Layer } from 'effect';
 import { HttpRouter } from 'effect/http';
 import { NodeHttpServer } from '@effect/platform-node';
 import { createServer, request } from 'node:http';
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { realpath, mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRoutes } from '../src/server.ts';
@@ -18,7 +18,7 @@ const store = {
 const session = 'test-session';
 describe('local HTTP capability boundary', () => {
   it('supports absent optional edit flags through the real file engine', async () => {
-    const directory = await mkdtemp(join(tmpdir(), 'okf-api-edit-'));
+    const directory = await realpath(await mkdtemp(join(tmpdir(), 'okf-api-edit-')));
     const root = join(directory, '.okf'); await mkdir(root);
     await writeFile(join(root, 'rule.md'), '---\ntype: Rule\n---\nOriginal.\n');
     const real = createStore({ version: 1, cwd: directory, gitRoot: null, configPath: join(directory, 'config.json'), bundles: [{ name: 'repo', root, kind: 'explicit', writable: true }] });

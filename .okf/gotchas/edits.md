@@ -16,3 +16,8 @@ target branch and resume partial publication using its retained journal.
 Test partial file writes, invalid Markdown links, external edits and interrupted
 publication. Ordinary success-path tests did not catch these cases during the
 initial implementation review.
+
+On macOS, normalize only verified, root-owned `/var`, `/tmp` and `/etc`
+aliases to their standard `/private` destinations before checking directory
+parents. Continue rejecting user-created symlinks. Native platform CI caught
+this difference after Linux checks passed.

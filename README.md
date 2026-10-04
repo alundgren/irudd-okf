@@ -157,3 +157,9 @@ pilot can test instrumentation; it cannot establish that thousands of rules
 reliably improve agents. The confirmatory study requires audited equivalent
 corpora and independent human ratings. Missing context traces are reported
 as unavailable, rather than estimated from file sizes.
+
+For a release, download the four native artifacts from one successful CI run,
+then run `node scripts/assemble-release.mjs ARTIFACT_DIRECTORY RELEASE_DIRECTORY`.
+Assembly checks all four archive checksums and creates the installer's
+`SHA256SUMS`. Publish those four archives and that file in the GitHub release
+for the reviewed commit. Never combine builds from different revisions.

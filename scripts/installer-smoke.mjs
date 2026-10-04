@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { execFileSync, spawn } from 'node:child_process';
-import { readFile, mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { realpath, readFile, mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-const directory = await mkdtemp(resolve(tmpdir(), 'okf-installer-'));
+const directory = await realpath(await mkdtemp(resolve(tmpdir(), 'okf-installer-')));
 const asset = `irudd-okf-${process.platform}-${process.arch}.tar.gz`;
 execFileSync('tar', ['-czf', resolve(directory, asset), '-C', 'build', 'irudd-okf']);
 const archive = await readFile(resolve(directory, asset));

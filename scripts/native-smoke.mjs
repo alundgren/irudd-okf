@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { realpath, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 const executable = resolve(process.argv[2] ?? 'build/irudd-okf');
-const cwd = await mkdtemp(resolve(tmpdir(), 'okf-native-'));
+const cwd = await realpath(await mkdtemp(resolve(tmpdir(), 'okf-native-')));
 const environment = { ...process.env, PATH: '/nonexistent', XDG_CONFIG_HOME: resolve(cwd, 'config'), XDG_STATE_HOME: resolve(cwd, 'state') };
 const run = (...args) => JSON.parse(execFileSync(executable, args, { cwd, encoding: 'utf8', env: environment }));
 let server;

@@ -4,6 +4,7 @@ import { chmod, lstat, mkdir, mkdtemp, open, readFile, realpath, rename, rm, wri
 import { homedir, tmpdir } from 'node:os';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { OkfError, type GitPreview, type GitStatus, type MemoryContext, type Operation, type PullRequestResult } from '../../core/src/contracts.ts';
+import { normalizeSystemPath } from '../../core/src/files.ts';
 import { checkedProcess, runProcess } from './process.ts';
 
 const call = (command: string, args: string[], cwd: string) => Effect.runPromise(checkedProcess(command, args, cwd));
@@ -18,7 +19,9 @@ interface Job extends GitPreview { root: string; bundleRoot: string; worktree: s
 export class GitMemory {
   private readonly directory: string;
   constructor(private readonly context: MemoryContext, stateDirectory?: string, private readonly githubCall = call) {
-    this.directory = stateDirectory ?? resolve(process.env.XDG_STATE_HOME ?? resolve(homedir(), '.local/state'), 'irudd-okf', 'pr-jobs');
+    const configuredState = process.env.XDG_STATE_HOME;
+    const stateRoot = configuredState && isAbsolute(configuredState) ? configuredState : resolve(homedir(), '.local/state');
+    this.directory = stateDirectory ?? resolve(stateRoot, 'irudd-okf', 'pr-jobs');
   }
   private async bundle(name: string) {
     const bundle = this.context.bundles.find(item => item.name === name);
@@ -29,6 +32,7 @@ export class GitMemory {
     return { bundle, root: resolvedRoot };
   }
   private async safeFile(root: string, path: string) {
+    root = await normalizeSystemPath(root);
     if (!path || path.includes('\0') || path.includes('\\') || isAbsolute(path) || path.split('/').some(part => !part || part === '.' || part === '..') || !path.endsWith('.md')) throw new OkfError('UNSAFE_PATH', 'Select bundle-relative Markdown paths.');
     const file = resolve(root, path);
     if (!within(root, file)) throw new OkfError('UNSAFE_PATH', 'Path leaves the bundle.');

@@ -1,12 +1,12 @@
 import { createServer } from 'node:http';
-import { mkdtemp, mkdir, readFile, writeFile, appendFile, stat, rm } from 'node:fs/promises';
+import { realpath, mkdtemp, mkdir, readFile, writeFile, appendFile, stat, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
-const directory = await mkdtemp(join(tmpdir(), 'okf-real-viewer-'));
+const directory = await realpath(await mkdtemp(join(tmpdir(), 'okf-real-viewer-')));
 const root = join(directory, '.okf'); await mkdir(join(root, 'nested'), { recursive: true });
 const raw = '---\ntype: Rule\ntitle: Source\nproducer:\n  unknown: keep-this\n---\n\nSource facts.\n';
 await writeFile(join(root, 'source.md'), raw);
@@ -28,13 +28,13 @@ const server = spawn(executable, ['--bundle', `repo=${root}`, 'serve', '--port',
 server.stderr.on('data', bytes => { serverError += bytes; });
 let browser;
 try {
-let ready = false;
-for (let attempt = 0; attempt < 150; attempt++) {
-  if (server.exitCode !== null) throw new Error(`Native server exited: ${serverError}`);
-  try { ready = (await fetch(`${origin}/wiki`)).ok; if (ready) break; } catch {}
-  await new Promise(done => setTimeout(done, 100));
-}
-assert(ready, `Native server failed to start: ${serverError}`);
+  let ready = false;
+  for (let attempt = 0; attempt < 150; attempt++) {
+    if (server.exitCode !== null) throw new Error(`Native server exited: ${serverError}`);
+    try { ready = (await fetch(`${origin}/wiki`)).ok; if (ready) break; } catch {}
+    await new Promise(done => setTimeout(done, 100));
+  }
+  assert(ready, `Native server failed to start: ${serverError}`);
   browser = await chromium.launch({ executablePath: process.env.OKF_CHROMIUM_PATH, headless: true });
   const page = await browser.newPage({ viewport: { width: 1360, height: 1000 } });
   const errors = []; const external = [];

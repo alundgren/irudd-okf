@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { Effect } from 'effect';
 import { execFileSync } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { realpath, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { GitMemory } from '../src/git.ts';
@@ -10,7 +10,7 @@ const directories: string[] = [];
 afterEach(async () => { for (const path of directories.splice(0)) await rm(path, { recursive: true, force: true }); });
 const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trimEnd();
 const fixture = async () => {
-  const root = await mkdtemp(resolve(tmpdir(), 'okf-git-test-')); directories.push(root);
+  const root = await realpath(await mkdtemp(resolve(tmpdir(), 'okf-git-test-'))); directories.push(root);
   git(root, 'init', '-b', 'main'); git(root, 'config', 'user.name', 'OKF Tests'); git(root, 'config', 'user.email', 'tests@example.invalid');
   await mkdir(resolve(root, '.okf'));
   await writeFile(resolve(root, '.okf/rule.md'), '---\ntype: Rule\n---\nOriginal\n');
@@ -39,7 +39,7 @@ describe('isolated memory PR preparation', () => {
   });
   it('rejects a symlinked destination bundle in the selected Git base', async () => {
     const { root, memory } = await fixture();
-    const external = await mkdtemp(resolve(tmpdir(), 'okf-git-external-')); directories.push(external);
+    const external = await realpath(await mkdtemp(resolve(tmpdir(), 'okf-git-external-'))); directories.push(external);
     await rm(resolve(root, '.okf'), { recursive: true }); await symlink(external, resolve(root, '.okf'));
     git(root, 'add', '-A'); git(root, 'commit', '-m', 'symlink base'); git(root, 'update-ref', 'refs/remotes/origin/main', 'HEAD');
     await rm(resolve(root, '.okf')); await mkdir(resolve(root, '.okf')); await writeFile(resolve(root, '.okf/rule.md'), '---\ntype: Rule\n---\nCurrent\n');
