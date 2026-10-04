@@ -1,0 +1,42 @@
+{
+  "preparedAt": "2026-10-04",
+  "productImplemented": false,
+  "liveAgentBenchmarksRun": false,
+  "researchAgents": 2,
+  "independentReviewer": true,
+  "reviewBlockersResolved": true,
+  "probe": {
+    "effect": "4.0.0",
+    "foldkit": "0.165.0",
+    "vitePlus": "1.0.0",
+    "packagingNode": "26.10.0",
+    "platformExecuted": "linux-x64-glibc",
+    "webTypecheckPassed": true,
+    "foldkitBrowserClickPassed": true,
+    "browserErrors": [],
+    "standaloneExecutablePassedWithoutRuntimeOnPath": true,
+    "embeddedHtmlReadPassed": true,
+    "binaryBytes": 151198845,
+    "macOSExecuted": false,
+    "linuxArm64Executed": false
+  },
+  "presentation": {
+    "pagesChecked": 8,
+    "graphWikiSwitchPassed": true,
+    "editDiffSavePreviewPassed": true,
+    "prPreviewPassed": true,
+    "corpusSizeControlsPassed": true,
+    "downloadPassed": true,
+    "embeddedProtocolMatchesSource": true,
+    "browserErrors": [],
+    "externalRequests": [],
+    "mobileDocumentOverflow": false,
+    "mobileDiagramReadableAlternative": true
+  },
+  "publication": {
+    "scopeName": "irudd-okf-product-plan",
+    "revision": 73,
+    "localMatchesPublished": true,
+    "feedbackListeningVerified": true
+  }
+}

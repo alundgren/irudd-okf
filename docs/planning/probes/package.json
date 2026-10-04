@@ -1,0 +1,15 @@
+{
+  "name": "irudd-okf-feasibility-probe",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "effect": "4.0.0",
+    "@effect/platform-node": "4.0.0",
+    "@effect/platform-browser": "4.0.0",
+    "foldkit": "0.165.0"
+  },
+  "devDependencies": {
+    "vite-plus": "1.0.0",
+    "typescript": "7.0.2"
+  }
+}

@@ -1,0 +1,244 @@
+{
+  "protocol_version": "0.1.0",
+  "created_utc_date": "2026-10-04",
+  "status": "planned_no_live_runs",
+  "purpose": "Compare repository guidance delivery using natural OSS guidance, matched source-backed concepts where available, and a separate synthetic 10,000-rule stress fixture.",
+  "proposed_run_default": {
+    "runtime": "current Codex harness",
+    "model": "gpt-6.1-sol",
+    "effort": "high",
+    "availability_recheck_required_at_preregistration": true,
+    "context_limit_and_trace_format_frozen_at_preregistration": true
+  },
+  "codex_instruction_loading": {
+    "discovery_time": "session_start",
+    "chain_scope": "global_configuration_then_repository_root_through_launch_working_directory",
+    "repo_only_global_agents_file": "empty_in_isolated_codex_home",
+    "personal_repo_global_guidance": "only_the_assigned_personal_bundle",
+    "default_project_doc_max_bytes": 32768,
+    "launch_working_directory_fixed_per_task_across_arms": true,
+    "nested_files_below_launch_directory_auto_loaded": false,
+    "read_required_nested_files_explicitly": true,
+    "capture_actual_loaded_chain_and_bytes": true,
+    "capture_truncation_or_omissions": true,
+    "source": "https://learn.chatgpt.com/docs/agent-configuration/agents-md"
+  },
+  "planning_settings_snapshot": {
+    "path": "/tmp/irudd-okf-planning-models.json",
+    "schema_version": 2,
+    "scout": {
+      "model": "gpt-6-luna",
+      "effort": "high"
+    },
+    "reviewer": {
+      "model": "gpt-6.1-sol",
+      "effort": "xhigh"
+    },
+    "planning_mode": "current",
+    "note": "Planning roles only; no benchmark model has been selected."
+  },
+  "benchmark_runtime": {
+    "provider": "OpenAI",
+    "model_id": "gpt-6.1-sol",
+    "model_release_tag": "resolve_and_record_from_runtime_before_first_run",
+    "reasoning_effort": "high",
+    "agent_harness": "Codex",
+    "agent_harness_version": "record_codex_version_before_first_run",
+    "sampling_settings": "capture_actual_runtime_defaults_and_any_overrides_before_first_run",
+    "context_limit_tokens": "capture_exact_selected_runtime_limit_at_preregistration",
+    "prompt_cache_mode": "capture_actual_runtime_setting_and_per_request_cache_usage",
+    "system_prompt_sha256": "hash_exact_system_prompt_captured_from_runtime_before_first_run",
+    "tool_descriptions_sha256": "hash_exact_tool_descriptions_and_skill_metadata_captured_from_runtime",
+    "runtime_trace_format": "Codex JSONL events plus actual runtime or provider usage/context instrumentation; verify capture fields in pilot",
+    "full_prompt_capture": "verify availability in pilot; if unavailable mark exact context comparison incomplete",
+    "capture_actual_loaded_skill_list_and_shortening_or_omissions": true,
+    "availability_recheck_before_confirmatory_run": true
+  },
+  "repositories": [
+    {
+      "name": "vercel/next.js",
+      "commit": "ba80ee48fc319735151c3ad6d9bb9a8180c9f09e",
+      "role": "core_candidate",
+      "verified_paths": ["AGENTS.md", "packages/next/AGENTS.md", ".agents/skills/", "skills/", "docs/03-architecture/", "contributing/"],
+      "license_at_inspection": "MIT",
+      "include_in_final_set": true
+    },
+    {
+      "name": "supabase/supabase",
+      "commit": "7353782724d837be316f0f6f87471ed176ab4bfd",
+      "role": "core_candidate",
+      "verified_paths": ["AGENTS.md", "apps/docs/AGENTS.md", "apps/studio/AGENTS.md", ".agents/skills/", "apps/docs/content/guides/*/architecture.mdx"],
+      "license_at_inspection": "Apache-2.0",
+      "include_in_final_set": true
+    },
+    {
+      "name": "vercel/ai",
+      "commit": "15f1a4d0531ac641a4a4d9cc602c0536c1906834",
+      "role": "core_candidate",
+      "verified_paths": ["AGENTS.md", "packages/ai/AGENTS.md", "skills/", "architecture/", "contributing/"],
+      "license_at_inspection": "NOASSERTION",
+      "include_in_final_set": true
+    },
+    {
+      "name": "biomejs/biome",
+      "commit": "21fb018647d7c7de35690d4c2b3a1a6b9fea7882",
+      "role": "core_candidate",
+      "verified_paths": ["AGENTS.md", ".claude/skills/", "crates/*/CONTRIBUTING.md"],
+      "license_at_inspection": "Apache-2.0",
+      "include_in_final_set": true
+    },
+    {
+      "name": "microsoft/vscode",
+      "commit": "4cc4da802681c8859d7e81f63ab202f253112b60",
+      "role": "high_scale_stress_candidate",
+      "verified_paths": ["AGENTS.md", "src/vs/platform/agentHost/AGENTS.md", ".github/skills/", "src/vs/sessions/skills/"],
+      "license_at_inspection": "MIT",
+      "include_in_final_set": false
+    },
+    {
+      "name": "denoland/deno",
+      "commit": "b4f08f127652d8442b4d3dbabc277aca3840bc1d",
+      "role": "alternate_native_instruction_filename_candidate",
+      "verified_paths": ["CLAUDE.md", ".claude/skills/", "doc/architecture.md"],
+      "license_at_inspection": "MIT",
+      "include_in_final_set": false
+    }
+  ],
+  "studies": {
+    "natural_corpus_audit": {
+      "enabled": true,
+      "model_runs": false
+    },
+    "equal_information_delivery": {
+      "enabled": true,
+      "concept_counts": [100, 1000, 10000],
+      "same_concept_ids_across_arms_per_scale": true,
+      "all_task_relevant_facts_equal_across_arms": true,
+      "same_task_ids_prompts_worktrees_launch_paths_and_applicable_concepts_across_scales": true,
+      "within_arm_adjacent_scale_comparisons_required": true,
+      "within_arm_scale_pairs": [[100, 1000], [1000, 10000]],
+      "within_arm_quality_bounds_percentage_points": {
+        "adjacent_growth_coverage_lower_ci": -2,
+        "adjacent_growth_correctness_lower_ci": -3,
+        "cumulative_100_to_10000_coverage_lower_ci": -4,
+        "cumulative_100_to_10000_correctness_lower_ci": -6
+      },
+      "natural_source_backed_only": true,
+      "source_backed_10000_required": false,
+      "synthetic_10000_fixture_required": true,
+      "synthetic_fixture": {
+        "rule_count": 10000,
+        "benchmark_only": true,
+        "explicitly_marked_synthetic": true,
+        "anchored_to_frozen_fork_paths": true,
+        "applies_only_to_benchmark_fork": true,
+        "human_audit_all_instances": true,
+        "categories": ["tests", "architecture", "ux", "accessibility", "formatting", "build_and_release", "data_handling", "api_compatibility", "documentation", "debugging"],
+        "scopes": ["repository", "package", "directory", "file"],
+        "lexical_near_matches": true,
+        "repeated_filler_allowed": false,
+        "task_gold_or_exact_patch_in_rules": false,
+        "natural_or_source_backed_corroboration_required_for_real_world_claims": true
+      },
+      "methods": [
+        {
+          "id": "native_nested_agents_and_links",
+          "discovery": "preserve_native_parent_and_nested_loading"
+        },
+        {
+          "id": "native_skills",
+          "discovery": "native_codex_trigger_metadata_and_activation",
+          "synthetic_10000_layouts": ["one_skill_per_rule_stress", "grouped_by_category_sensitivity"]
+        },
+        {
+          "id": "okf_raw_path_routing",
+          "discovery": "short_nested_locator_plus_path_routing"
+        },
+        {
+          "id": "okf_raw_agent_retrieval",
+          "discovery": "short_nested_locator_plus_retrieval_examples"
+        },
+        {
+          "id": "okf_cli_skill",
+          "discovery": "short_nested_locator_plus_cli_skill"
+        }
+      ]
+    },
+    "personal_scope_and_conflicts": {
+      "enabled": true,
+      "scopes": ["repository_only", "personal_plus_current_repository"],
+      "conventions": ["repo_wins", "ask_on_conflict"],
+      "score_safe_stops_and_unnecessary_questions_separately": true,
+      "product_encodes_precedence": false
+    },
+    "maintenance_and_writes": {
+      "enabled": true,
+      "write_conventions": ["read_only", "explicit_user_capture", "agent_proposal_with_human_review", "isolated_spontaneous_write"],
+      "personal_write_requires_task_authorization": true
+    }
+  },
+  "task_plan": {
+    "classes": ["answer_only", "code_change", "maintenance"],
+    "pilot_tasks_per_core_repository": 12,
+    "confirmatory_task_families_per_core_repository_minimum": 30,
+    "confirmatory_count_increased_if_power_analysis_requires": true,
+    "feasibility_pilot_separate_from_confirmatory_tasks": true,
+    "held_out_task_ground_truth": true,
+    "hidden_acceptance_checks": true,
+    "blind_human_grading": true,
+    "repetitions_per_cell": null,
+    "power_calculation": "use blinded pilot variance before confirmatory run",
+    "randomization": "fresh sessions; randomized arm order within repository/task blocks; interleave over time"
+  },
+  "corpus_audit": {
+    "source_span_map_required": true,
+    "two_reviewer_equivalence_audit": true,
+    "task_used_facts_all_independently_reviewed": true,
+    "remaining_facts_random_sample_reviewed": true,
+    "product_priority_or_authority_fields_added": false,
+    "evaluator_severity_labels_agent_visible": false
+  },
+  "telemetry_required": {
+    "actual_runtime_context_trace": true,
+    "provider_token_usage_records": true,
+    "unique_tool_content_deduplicated_by_hash": true,
+    "recurring_billed_input_tokens_summed_across_model_calls": true,
+    "recurring_billed_input_and_output_totals_and_subtotals": true,
+    "peak_logical_context_from_actual_request_trace": true,
+    "context_metric_change_reported_median_and_p95": true,
+    "provisional_per_decade_context_growth_cap_percent": {
+      "median": 25,
+      "p95": 50
+    },
+    "calibrate_same_scale_measurement_variability_in_pilot": true,
+    "actual_loaded_skill_descriptions": true,
+    "skill_metadata_included_shortened_omitted_and_invoked_reported_separately": true,
+    "file_and_cli_tool_traces": true,
+    "cached_and_uncached_tokens_separate": true,
+    "end_to_end_wall_time": true,
+    "tool_latency_and_errors": true,
+    "missing_actual_traces_makes_context_comparison_incomplete": true
+  },
+  "provisional_decision_thresholds": {
+    "owner_approval_gate_imposed_by_protocol": false,
+    "freeze_thresholds_with_rationale_before_confirmatory_run": true,
+    "revise_if_pilot_intervals_are_infeasible_and_document_reason": true,
+    "applicable_rule_coverage_noninferiority_percentage_points": -2,
+    "task_correctness_noninferiority_percentage_points": -3,
+    "task_blocking_or_safety_impacting_violation_upper_ci_increase_points": 1,
+    "unsupported_or_duplicate_memory_entry_upper_ci_increase_points": 2,
+    "minimum_median_input_token_reduction_at_1000_and_10000_concepts_percent": 25,
+    "maximum_median_end_to_end_time_increase_percent": 10,
+    "decision_rule": "apply quality bounds separately by scale, task class, and evaluator severity; context savings cannot offset a quality failure"
+  },
+  "analysis": {
+    "primary_outputs": ["applicable_rule_coverage", "task_correctness", "instruction_compliance_by_evaluator_severity", "memory_quality"],
+    "paired_by": ["repository", "task_family", "concept_scale"],
+    "within_arm_scale_pairing_by": ["delivery_method", "repository", "task_id", "launch_working_directory", "applicable_concept_ids"],
+    "confidence_interval": "paired 95% bootstrap clustered by repository and task family",
+    "confirmatory_model_families": ["mixed_effects_logistic_for_binary_outcomes", "mixed_or_clustered_models_for_count_and_continuous_outcomes"],
+    "all_cells_and_exclusions_reported": true
+  },
+  "results": null,
+  "source_accessed_date": "2026-10-04"
+}
