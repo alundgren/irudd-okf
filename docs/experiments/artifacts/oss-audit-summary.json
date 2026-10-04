@@ -1,0 +1,23 @@
+{
+  "provenance": {
+    "repository": "vercel/ai",
+    "commit": "15f1a4d0531ac641a4a4d9cc602c0536c1906834",
+    "download_method": "gh api pinned tarball",
+    "archive_sha256": "008288e5f3de7740383368f64859de72b97fda1341c783c925c35f1fb5426443",
+    "license": {
+      "path": "LICENSE",
+      "sha": "6c16c29f41168411dbf6e3ba3a063ce789c27334",
+      "spdx": "NOASSERTION",
+      "license_text_sha256": "b4f9adb7c568904834d0dd6cc98d16c390d21ca32fc17ae7a267715269bd5529"
+    },
+    "redistribution": "Third-party sources remain outside this MIT repository. Preserve upstream notices; license review is required before publishing transformations.",
+    "status": "downloaded_not_transformed",
+    "human_license_review": "pending"
+  },
+  "source_file_count": 9128,
+  "guidance_file_count": 610,
+  "symlink_count": 3,
+  "source_backed_concepts": null,
+  "reason": "Atomic concept extraction and two-human equivalence review are pending. File counts are not concept counts.",
+  "third_party_source_location": "External /tmp archive and tree; no upstream text copied into this MIT repository."
+}
