@@ -1,9 +1,10 @@
 import * as fs from 'node:fs/promises';
 import path from 'node:path';
 import MarkdownIt from 'markdown-it';
+import linkRule from 'markdown-it/lib/rules_inline/link.mjs';
 import referenceRule from 'markdown-it/lib/rules_block/reference.mjs';
 import { OkfError, type Bundle, type Concept, type ConceptSummary, type MemoryContext, type Store, type Operation, type WriteRequest, type DeleteRequest, type RenameRequest, type MutationResult } from './contracts.ts';
-import { operation, guarded, scan, hash, absent, cleanPath, withLock, recovery, atomicReplace, readRaw } from './files.ts';
+import { operation, guarded, scan, hash, absent, cleanPath, withLock, recovery, atomicReplace, atomicCreate, readRaw } from './files.ts';
 import { decode, WriteSchema, DeleteSchema, RenameSchema } from './schemas.ts';
 import { parseConcept, reserved, resolveLink } from './parser.ts';
 
@@ -88,17 +89,24 @@ function rewriteLinks(raw: string, source: string, oldPath: string, newPath: str
       searchAt = found + line.length + 1;
     }
     if (locations.length < token.content.length) continue;
-    md.helpers.parseLinkDestination = (text, position, maximum) => {
-      const result = original(text, position, maximum);
-      if (result.ok) {
-        const value = transform(result.str);
-        if (value !== result.str) {
-          const angle = text[position] === '<';
-          edits.push({ start: locations[position + (angle ? 1 : 0)], end: locations[result.pos - (angle ? 1 : 0)], value });
+    md.inline.ruler.at('link', (state, silent) => {
+      const captured: Array<{ start: number; end: number; value: string }> = [];
+      md.helpers.parseLinkDestination = (text, position, maximum) => {
+        const result = original(text, position, maximum);
+        if (result.ok) {
+          const value = transform(result.str);
+          if (value !== result.str) {
+            const angle = text[position] === '<';
+            captured.push({ start: locations[position + (angle ? 1 : 0)], end: locations[result.pos - (angle ? 1 : 0)], value });
+          }
         }
-      }
-      return result;
-    };
+        return result;
+      };
+      let accepted;
+      try { accepted = linkRule(state, silent); } finally { md.helpers.parseLinkDestination = original; }
+      if (accepted && !silent) edits.push(...captured);
+      return accepted;
+    });
     md.inline.parse(token.content, md, {}, []);
   }
   md.helpers.parseLinkDestination = original;
@@ -180,8 +188,8 @@ export function createStore(input: MemoryContext): Store {
       const folder = path.posix.dirname(file);
       const prefix = folder === '.' ? '' : folder + '/';
       const entries = documents.filter(concept => concept.path.startsWith(prefix) && !reserved(concept.path));
-      const raw = '# Knowledge\n\n' + entries.slice(0, 250).map(concept => `- [${concept.title.replace(/[\[\]]/g, '')}](${encodeURI(concept.path.slice(prefix.length))})${concept.description ? ' - ' + concept.description : ''}`).join('\n') + '\n';
-      return parseConcept(bundle, file, raw);
+      const raw = '# Knowledge\n\n' + entries.slice(0, 250).map(concept => `- [${concept.title.replace(/[\[\]]/g, '')}](${concept.path.slice(prefix.length).split('/').map(encodeURIComponent).join('/')})${concept.description ? ' - ' + concept.description : ''}`).join('\n') + '\n';
+      return { ...parseConcept(bundle, file, raw), hash: '' };
     }),
     search: (query, options = {}) => operation(async () => {
       if (query.length > 2048) throw new OkfError('QUERY_LIMIT', 'Search queries are limited to 2048 characters.');
@@ -260,7 +268,7 @@ export function createStore(input: MemoryContext): Store {
       const recoveryPath = original !== null ? await recovery(bundle.root, original) : undefined;
       await guarded(bundle, request.path, true);
       await requireHash(file, request.expectedHash);
-      if (request.expectedHash === null) await fs.writeFile(file, request.raw, { flag: 'wx' }).catch(error => { if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new OkfError('CONFLICT', 'The destination was created by another writer.'); throw error; });
+      if (request.expectedHash === null) await atomicCreate(file, request.raw).catch(error => { if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new OkfError('CONFLICT', 'The destination was created by another writer.'); throw error; });
       else await atomicReplace(file, request.raw);
       cache.delete(`${bundle.name}:${cleanPath(request.path)}`);
       return { version: 1, bundle: bundle.name, path: cleanPath(request.path), hash: hash(request.raw), changedPaths: [cleanPath(request.path)], ...(recoveryPath ? { recoveryPath } : {}) };
@@ -304,7 +312,7 @@ export function createStore(input: MemoryContext): Store {
       let deleted = false;
       try {
         await requireHash(source, request.expectedHash);
-        await fs.writeFile(destination, newRaw, { flag: 'wx' }); created = true;
+        await atomicCreate(destination, newRaw); created = true;
         for (const update of updates) {
           const file = await guarded(bundle, update.concept.path);
           await requireHash(file, update.concept.hash);

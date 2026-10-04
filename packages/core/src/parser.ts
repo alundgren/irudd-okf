@@ -20,11 +20,36 @@ export function resolveLink(source: string, href: string): { target: string; ext
   else if (decoded.endsWith('/')) target = target.replace(/\/$/, '') + '/index.md';
   return { target, external: false, fragment, unsafe };
 }
+function jsonMetadata(value: Record<string, unknown>): { value: Record<string, unknown>; adjusted: boolean } {
+  const ancestors = new WeakSet<object>();
+  let adjusted = false;
+  let remaining = 50_000;
+  function visit(value: unknown, depth: number): unknown {
+    if (depth > 100 || --remaining < 0) { adjusted = true; return null; }
+    if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
+    if (typeof value === 'number') { if (Number.isFinite(value)) return value; adjusted = true; return null; }
+    if (typeof value === 'bigint') { adjusted = true; return value.toString(); }
+    if (typeof value !== 'object') { adjusted = true; return null; }
+    if (ancestors.has(value)) { adjusted = true; return null; }
+    ancestors.add(value);
+    let result: unknown;
+    if (Array.isArray(value)) result = value.map(item => visit(item, depth + 1));
+    else if (value instanceof Set) { adjusted = true; result = [...value].map(item => visit(item, depth + 1)); }
+    else if (value instanceof Map) { adjusted = true; result = [...value].map(([key, item]) => [visit(key, depth + 1), visit(item, depth + 1)]); }
+    else if (value instanceof Date) { adjusted = true; result = Number.isNaN(value.getTime()) ? null : value.toISOString(); }
+    else if (ArrayBuffer.isView(value)) { adjusted = true; result = Array.from(new Uint8Array(value.buffer, value.byteOffset, value.byteLength)); }
+    else result = Object.fromEntries(Object.entries(value).map(([key, item]) => [key, visit(item, depth + 1)]));
+    ancestors.delete(value);
+    return result;
+  }
+  return { value: visit(value, 0) as Record<string, unknown>, adjusted };
+}
 export function parseConcept(bundle: string, file: string, raw: string): Concept {
   const diagnostics: Diagnostic[] = [];
   const report = (level: 'error' | 'warning', code: string, message: string) => diagnostics.push({ level, code, message, path: file, bundle });
   let body = raw;
   let metadata: Record<string, unknown> = {};
+  let originalMetadata: Record<string, unknown> = metadata;
   let hasFrontmatter = false;
   const frontmatter = /^(?:\uFEFF)?---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(raw);
   if (frontmatter) {
@@ -35,7 +60,10 @@ export function parseConcept(bundle: string, file: string, raw: string): Concept
       if (document.errors.length) throw new Error(document.errors[0].message);
       const data = document.toJS({ maxAliasCount: 50 });
       if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('Frontmatter must be a mapping.');
-      metadata = data;
+      originalMetadata = data;
+      const projected = jsonMetadata(data);
+      metadata = projected.value;
+      if (projected.adjusted) report('warning', 'METADATA_PROJECTION', 'Metadata contains values JSON cannot represent directly. The metadata view replaces cyclic references and limits with null; original YAML remains in raw Markdown.');
     } catch (error) { report('error', 'MALFORMED_FRONTMATTER', error instanceof Error ? error.message : 'Cannot parse frontmatter.'); }
   } else if (!reserved(file)) report('error', 'MISSING_FRONTMATTER', 'Concepts need a YAML frontmatter block.');
   if (path.posix.basename(file) === 'index.md') {
@@ -50,11 +78,11 @@ export function parseConcept(bundle: string, file: string, raw: string): Concept
       if (!/^\d{4}-\d{2}-\d{2}$/.test(line) || Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== line) report('error', 'LOG_DATE', 'Log date headings must use a valid YYYY-MM-DD date.');
     }
   } else {
-    if (typeof metadata.type !== 'string' || !metadata.type.trim()) report('error', 'MISSING_TYPE', 'Concepts need a non-empty type string.');
-    if (metadata.type === 'Attested Computation' && (typeof metadata.runtime !== 'string' || !metadata.runtime.trim())) report('error', 'MISSING_RUNTIME', 'Attested Computation concepts need a runtime string.');
+    if (typeof originalMetadata.type !== 'string' || !originalMetadata.type.trim()) report('error', 'MISSING_TYPE', 'Concepts need a non-empty type string.');
+    if (originalMetadata.type === 'Attested Computation' && (typeof originalMetadata.runtime !== 'string' || !originalMetadata.runtime.trim())) report('error', 'MISSING_RUNTIME', 'Attested Computation concepts need a runtime string.');
   }
   if (metadata.verified && !Array.isArray(metadata.verified) && typeof metadata.verified === 'object') metadata.verified = [metadata.verified];
-  for (const field of ['title', 'description', 'resource']) if (metadata[field] !== undefined && typeof metadata[field] !== 'string') report('warning', 'OPTIONAL_FIELD', `${field} should be a string.`);
+  for (const field of ['title', 'description', 'resource']) if (originalMetadata[field] !== undefined && typeof originalMetadata[field] !== 'string') report('warning', 'OPTIONAL_FIELD', `${field} should be a string.`);
   if (metadata.tags !== undefined && (!Array.isArray(metadata.tags) || metadata.tags.some(tag => typeof tag !== 'string'))) report('warning', 'OPTIONAL_FIELD', 'tags should be a list of strings.');
   if (typeof metadata.stale_after === 'string' && Date.parse(metadata.stale_after) < Date.now()) report('warning', 'STALE', 'The concept is past stale_after.');
   const links: Link[] = [];
