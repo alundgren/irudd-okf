@@ -102,6 +102,76 @@ test('external adapter receives no oracle; fresh runs contain only assigned scop
   await assert.rejects(run({ workspace, evaluator, artifacts, adapter: executable, methods: ['nested'], taskIds: ['architecture'] }), /Frozen workspace changed/);
 });
 
+test('synthetic commits disable inherited detached maintenance and remove every completed checkout', async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'okf-git-maintenance-test-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const workspace = path.join(dir, 'workspaces'), evaluator = path.join(dir, 'hidden'), artifacts = path.join(dir, 'artifacts');
+  await generate({ workspace, evaluator, methods: ['nested', 'okf-path'] });
+  const globalConfig = path.join(dir, 'gitconfig'), controlTrace = path.join(dir, 'control-trace.jsonl'), trace = path.join(dir, 'trace.jsonl');
+  await fs.writeFile(globalConfig, '[maintenance]\n auto = true\n autoDetach = true\n[gc]\n auto = 1\n autoDetach = true\n');
+  const env = { ...process.env, GIT_CONFIG_GLOBAL: globalConfig, GIT_CONFIG_NOSYSTEM: '1', GIT_TRACE2_EVENT: trace };
+  const control = path.join(dir, 'control');
+  for (const args of [['init', '--quiet', control], ['-C', control, '-c', 'user.name=Benchmark', '-c', 'user.email=benchmark@example.invalid', '-c', 'maintenance.autoDetach=false', '-c', 'gc.autoDetach=false', 'commit', '--quiet', '--allow-empty', '-m', 'Trace control']]) {
+    const result = await command('git', args, { env: { ...env, GIT_TRACE2_EVENT: controlTrace } });
+    assert.equal(result.code, 0, result.stderr);
+  }
+  const automatic = event => event.event === 'child_start' && event.argv?.includes('--auto') && event.argv.some(arg => arg === 'maintenance' || arg === 'gc');
+  assert.equal((await fs.readFile(controlTrace, 'utf8')).trim().split('\n').map(JSON.parse).some(automatic), true, 'control commit must prove the trace observes automatic maintenance');
+  const adapter = path.join(dir, 'adapter.mjs');
+  await fs.writeFile(adapter, `#!/usr/bin/env node\nimport {execFileSync} from 'node:child_process';let input='';for await(const c of process.stdin)input+=c;const request=JSON.parse(input);const git=args=>execFileSync('git',['-C',request.workspace,...args],{encoding:'utf8'}).trim();if(git(['config','--local','--bool','maintenance.auto'])!=='false'||git(['config','--local','--int','gc.auto'])!=='0'||git(['rev-list','--count','HEAD'])!=='1')process.exit(3);console.log(JSON.stringify({version:1,code:0,stdout:JSON.stringify({type:'item.completed',item:{type:'agent_message',text:request.workspace}})+'\\n'+JSON.stringify({type:'turn.completed',usage:{input_tokens:1,output_tokens:1,cached_input_tokens:0}})+'\\n',runtime_version:'fake-test-only'}));\n`);
+  await fs.chmod(adapter, 0o700);
+  const cli = await command(process.execPath, [fileURLToPath(new URL('../main.mjs', import.meta.url)), 'run', '--workspace', workspace, '--evaluator', evaluator, '--artifacts', artifacts, '--adapter', adapter, '--tasks', 'architecture'], { env, timeoutMs: 30000 });
+  assert.equal(cli.code, 0, cli.stderr);
+  assert.equal(JSON.parse(cli.stdout).failed_cells, 0);
+  const rows = await readJson(path.join(artifacts, 'results.json'));
+  assert.equal(rows.length, 2);
+  assert.equal(rows.every(row => row.status === 'completed'), true);
+  for (const row of rows) {
+    const checkout = (await fs.readFile(path.join(artifacts, row.id, 'answer.txt'), 'utf8')).trim();
+    await assert.rejects(fs.stat(checkout), { code: 'ENOENT' });
+  }
+  const events = (await fs.readFile(trace, 'utf8')).trim().split('\n').map(JSON.parse);
+  assert.equal(events.filter(event => event.event === 'start' && event.argv?.includes('commit')).length, 2);
+  assert.equal(events.some(automatic), false, 'synthetic commits must not launch maintenance or automatic GC');
+});
+
+test('checkout removal failure retains raw evidence, fails only that cell and gives a failing CLI status', async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'okf-cleanup-failure-test-'));
+  const retainedFile = path.join(dir, 'retained-directory.txt');
+  t.after(async () => {
+    const retained = await fs.readFile(retainedFile, 'utf8').catch(() => null);
+    if (retained) await fs.rm(retained, { recursive: true, force: true });
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+  const workspace = path.join(dir, 'workspaces'), evaluator = path.join(dir, 'hidden'), artifacts = path.join(dir, 'artifacts');
+  await generate({ workspace, evaluator, methods: ['nested', 'okf-path'] });
+  const preload = path.join(dir, 'inject-cleanup-failure.mjs');
+  await fs.writeFile(preload, `import fs from 'node:fs/promises';import path from 'node:path';const remove=fs.rm;let injected=false;fs.rm=async(target,options)=>{if(!injected&&path.basename(target).startsWith('okf-agent-run-')){injected=true;await fs.writeFile(${JSON.stringify(retainedFile)},target);throw Object.assign(new Error('Injected removal failure'),{code:'ENOTEMPTY'});}return remove(target,options);};\n`);
+  const trace = JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'test-only completed answer' } }) + '\n' + JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 10, output_tokens: 3, cached_input_tokens: 0 } }) + '\n';
+  const raw = JSON.stringify({ version: 1, code: 0, stdout: trace, runtime_version: 'fake-test-only' }) + '\n';
+  const adapter = path.join(dir, 'adapter.mjs');
+  await fs.writeFile(adapter, `#!/usr/bin/env node\nprocess.stdout.write(${JSON.stringify(raw)});process.stderr.write('raw-transport-error-stream\\n');\n`);
+  await fs.chmod(adapter, 0o700);
+  const cli = await command(process.execPath, ['--import', preload, fileURLToPath(new URL('../main.mjs', import.meta.url)), 'run', '--workspace', workspace, '--evaluator', evaluator, '--artifacts', artifacts, '--adapter', adapter, '--tasks', 'architecture'], { timeoutMs: 30000 });
+  assert.equal(cli.code, 1, cli.stderr); assert.equal(JSON.parse(cli.stdout).failed_cells, 1);
+  const rows = await readJson(path.join(artifacts, 'results.json'));
+  assert.equal(rows.length, 2); assert.equal(rows[0].status, 'failed'); assert.equal(rows[1].status, 'completed');
+  assert.equal(rows[0].failure.stage, 'cleanup'); assert.equal(rows[0].failure.code, 'ENOTEMPTY'); assert.equal(rows[0].machine_grade.coverage, null);
+  assert.equal(rows[0].metrics.recurring_input_tokens, 10);
+  const retained = await fs.readFile(retainedFile, 'utf8');
+  assert.equal(rows[0].failure.directory, retained); assert.equal((await fs.stat(retained)).isDirectory(), true);
+  for (const row of rows) {
+    const cell = path.join(artifacts, row.id);
+    assert.equal(await fs.readFile(path.join(cell, 'adapter-stdout.txt'), 'utf8'), raw);
+    assert.equal(await fs.readFile(path.join(cell, 'adapter-stderr.txt'), 'utf8'), 'raw-transport-error-stream\n');
+    assert.equal(await fs.readFile(path.join(cell, 'trace.jsonl'), 'utf8'), trace);
+    assert.equal((await readJson(path.join(cell, 'result.json'))).status, row.status);
+  }
+  assert.equal((await readJson(path.join(artifacts, rows[0].id, 'failure.json'))).stage, 'cleanup');
+  const packets = await fs.readdir(path.join(artifacts, 'human-raters'));
+  assert.deepEqual((await Promise.all(packets.map(file => readJson(path.join(artifacts, 'human-raters', file))))).map(packet => packet.execution_status).sort(), ['completed', 'failed']);
+});
+
 test('personal exposure is explicit, scoped and adds no product precedence field', async t => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'okf-personal-test-'));
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
