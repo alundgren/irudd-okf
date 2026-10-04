@@ -1,6 +1,10 @@
 node_modules/
 build/
+dist/
 web-dist/
 coverage/
 .playwright/
 *.local
+
+release/
+docs/validation/browser-*
