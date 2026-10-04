@@ -8,7 +8,11 @@ import { ConfigSchema, decode } from './schemas.ts';
 import { absent, operation, within, withLock, atomicReplace, atomicCreate, ensureDirectory, canonicalDirectory, normalizeSystemPath } from './files.ts';
 
 interface Config { version: 1; bundles: Array<{ name: string; path: string; personal?: boolean }>; active: string[] }
-const globalPath = () => path.join(process.env.XDG_CONFIG_HOME ?? path.join(os.homedir(), '.config'), 'irudd-okf', 'config.json');
+const globalPath = () => {
+  const configured = process.env.XDG_CONFIG_HOME;
+  const directory = configured && path.isAbsolute(configured) ? configured : path.join(os.homedir(), '.config');
+  return path.join(directory, 'irudd-okf', 'config.json');
+};
 const expand = (input: string, base: string) => path.resolve(base, input.startsWith('~/') ? path.join(os.homedir(), input.slice(2)) : input);
 function checkName(name: string) { if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(name)) throw new OkfError('INVALID_CONFIG', 'Bundle names must contain letters, numbers, hyphens or underscores.', { name }); }
 async function readConfig(file: string): Promise<Config> {

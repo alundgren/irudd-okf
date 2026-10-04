@@ -56,6 +56,17 @@ describe('platform directory aliases', () => {
     await expect(fs.stat(path.join(actual, 'new'))).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(Effect.runPromise(resolveContext({ cwd: lexicalRoot, explicitBundles: [{ name: 'user', root: path.join(lexicalRoot, 'link') }] }))).rejects.toMatchObject({ code: 'UNSAFE_PATH' });
   });
+  it('uses the home configuration directory for unset, empty or relative XDG_CONFIG_HOME values', async () => {
+    const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'okf-xdg-path-'))); directories.push(root);
+    const fallback = path.join(os.homedir(), '.config', 'irudd-okf', 'config.json');
+    for (const value of [undefined, '', 'relative/config', '~/config']) {
+      vi.stubEnv('XDG_CONFIG_HOME', value);
+      const context = await Effect.runPromise(resolveContext({ cwd: root, explicitBundles: [] }));
+      expect(context.configPath).toBe(fallback);
+    }
+    const absolute = path.join(root, 'configured'); vi.stubEnv('XDG_CONFIG_HOME', absolute);
+    expect((await Effect.runPromise(resolveContext({ cwd: root, explicitBundles: [] }))).configPath).toBe(path.join(absolute, 'irudd-okf', 'config.json'));
+  });
   it('uses XDG_CONFIG_HOME for explicitly activated personal registration outside the working directory', async () => {
     const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'okf-xdg-'))); directories.push(root);
     const cwd = path.join(root, 'working'); await fs.mkdir(cwd);
