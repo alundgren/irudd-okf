@@ -73,7 +73,22 @@ export function view(model: Model, h: Html.HtmlBuilder<Message>): Html.Html {
       model.notice ? h.p([h.Class("notice")], [model.notice]) : null,
       busy("context") ? h.p([], ["Connecting to the local server…"]) : null,
       error("context"),
-      model.errors.context ? button("Reconnect", { _tag: "Refresh" }) : null,
+      Object.values(model.errors).some((error) =>
+        ["connection", "session", "UNAUTHORIZED_SESSION"].includes(error.code),
+      )
+        ? h.div(
+            [h.Class("notice")],
+            [
+              h.p(
+                [],
+                [
+                  "Reload the viewer after restarting the local server to establish a new session. Unsaved drafts are kept in this tab.",
+                ],
+              ),
+              button("Reload viewer", { _tag: "Reload" }),
+            ],
+          )
+        : null,
       model.recovery
         ? h.div(
             [h.Class("notice")],
@@ -203,7 +218,7 @@ export function view(model: Model, h: Html.HtmlBuilder<Message>): Html.Html {
                                     [h.Class("actions")],
                                     [
                                       button(
-                                        "Edit",
+                                        concept.hash ? "Edit" : "Save as index",
                                         { _tag: "Edit", operation: "write" },
                                         !writable,
                                       ),
@@ -225,7 +240,9 @@ export function view(model: Model, h: Html.HtmlBuilder<Message>): Html.Html {
                               h.p([h.Class("provenance")], [`${concept.bundle} / ${concept.path}`]),
                               h.p(
                                 [h.Class("source-root")],
-                                [`File: ${source?.root ?? ""}/${concept.path}`],
+                                [
+                                  `${concept.hash ? "File" : "Generated index"}: ${source?.root ?? ""}/${concept.path}`,
+                                ],
                               ),
                               concept.malformed
                                 ? h.p(
@@ -569,7 +586,7 @@ export function view(model: Model, h: Html.HtmlBuilder<Message>): Html.Html {
               "Link depth",
               String(model.graphDepth),
               (value) => ({ _tag: "GraphDepth", value }),
-              [h.Type("number"), h.Min("0"), h.Max("5")],
+              [h.Type("number"), h.Min("0"), h.Max("3")],
             ),
             button("Zoom in", { _tag: "Zoom", value: 1.25 }),
             button("Zoom out", { _tag: "Zoom", value: 0.8 }),

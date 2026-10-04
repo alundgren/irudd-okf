@@ -47,6 +47,7 @@ export type Message =
   | Loaded
   | { _tag: "Failed"; lane: string; id: number; error: RequestError }
   | { _tag: "Refresh" }
+  | { _tag: "Reload" }
   | { _tag: "Query"; value: string }
   | { _tag: "ListPage"; offset: number }
   | { _tag: "Edit"; operation: Draft["operation"] }
@@ -310,12 +311,29 @@ function refresh(model: Model): Result {
   ]);
 }
 function navigate(model: Model, intent: Intent): Result {
+  if (model.busy.includes("pr"))
+    return done({
+      ...model,
+      notice:
+        "The pull request is being created. Wait for its result before switching sources or views.",
+    });
   if (model.busy.includes("mutation"))
     return done({
       ...model,
       notice: "The file is being saved. Wait for the result before leaving this document.",
     });
-  if (dirty(model)) return done({ ...model, pendingIntent: intent });
+  if (dirty(model))
+    return done({ ...model, pendingIntent: intent }, [
+      {
+        name: "FocusDraftWarning",
+        effect: Effect.sync(() => {
+          requestAnimationFrame(() =>
+            document.querySelector<HTMLButtonElement>(".modal button")?.focus(),
+          );
+          return { _tag: "Noop" } as Message;
+        }),
+      },
+    ]);
   if (intent._tag === "Search") {
     const next = { ...model, view: "wiki" as const, draft: null, conflict: null };
     const result = issue(next, "search", "search", {
@@ -503,11 +521,7 @@ export function update(model: Model, message: Message): Result {
         busy: model.busy.filter((lane) => lane !== message.lane),
         errors: { ...model.errors, [message.lane]: message.error },
       };
-      if (
-        message.lane === "mutation" &&
-        message.error.status === 409 &&
-        model.draft?.expectedHash !== null
-      )
+      if (message.lane === "mutation" && message.error.status === 409 && model.draft !== null)
         return issue(
           next,
           "concept",
@@ -519,6 +533,16 @@ export function update(model: Model, message: Message): Result {
         );
       return done(next);
     }
+    case "Reload":
+      return done(model, [
+        {
+          name: "ReloadViewer",
+          effect: Effect.sync(() => {
+            location.reload();
+            return { _tag: "Noop" } as Message;
+          }),
+        },
+      ]);
     case "Refresh":
       return dirty(model)
         ? done({
@@ -539,7 +563,7 @@ export function update(model: Model, message: Message): Result {
         path: model.concept.path,
         raw: model.concept.raw,
         original: model.concept.raw,
-        expectedHash: model.concept.hash,
+        expectedHash: model.concept.hash || null,
         operation: message.operation,
         newPath: model.concept.path,
         updateLinks: true,
@@ -682,7 +706,7 @@ export function update(model: Model, message: Message): Result {
     case "GraphDepth":
       return graphRequest({
         ...model,
-        graphDepth: Math.max(0, Math.min(5, Number(message.value) || 0)),
+        graphDepth: Math.max(0, Math.min(3, Number(message.value) || 0)),
       });
     case "Zoom":
       return done({ ...model, zoom: Math.max(0.3, Math.min(4, model.zoom * message.value)) });
@@ -693,6 +717,7 @@ export function update(model: Model, message: Message): Result {
     case "Validate":
       return issue(model, "validation", "validate", { bundle: model.bundle, lint: "true" });
     case "SelectPath":
+      if (model.busy.includes("pr")) return done(model);
       return done({
         ...model,
         selectedPaths: model.selectedPaths.includes(message.path)
@@ -702,13 +727,14 @@ export function update(model: Model, message: Message): Result {
         pr: null,
       });
     case "ReviewField":
+      if (model.busy.includes("pr")) return done(model);
       return done({
         ...model,
         [message.field]: message.value,
         ...(message.field === "base" ? { gitPreview: null, pr: null } : {}),
       });
     case "GitPreview":
-      return model.selectedPaths.length
+      return model.selectedPaths.length && !model.busy.includes("pr")
         ? issue(
             model,
             "preview",

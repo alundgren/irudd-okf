@@ -70,14 +70,20 @@ beforeAll(async () => {
               ],
             });
           case "/api/list":
-            return json({ version: 1, concepts: [...concepts.values()] });
+            return json({
+              version: 1,
+              concepts: [...concepts.values()].filter((concept) => concept.path !== "index.md"),
+            });
           case "/api/index":
-            return json(make("index.md", "# Memory index\n\n[Cleanup](cleanup.md)"));
+            return json(
+              concepts.get("index.md") ??
+                make("index.md", "# Memory index\n\n[Cleanup](cleanup.md)", ""),
+            );
           case "/api/concept":
             if (req.method === "POST" || req.method === "DELETE") {
               writes.push(body);
               const current = concepts.get(body.path);
-              if (forceConflict) {
+              if (forceConflict || (body.expectedHash === null && current)) {
                 forceConflict = false;
                 concepts.set(
                   body.path,
@@ -147,7 +153,9 @@ beforeAll(async () => {
           case "/api/graph":
             return json({
               version: 1,
-              nodes: [...concepts.values()].slice(0, Number(url.searchParams.get("limit") ?? 80)),
+              nodes: [...concepts.values()]
+                .filter((concept) => concept.path !== "index.md")
+                .slice(0, Number(url.searchParams.get("limit") ?? 80)),
               edges: [
                 {
                   from: "repo:cleanup.md",
@@ -285,6 +293,12 @@ it.runIf(enabled)(
     await page.locator(".search-results").getByRole("button", { name: "Next" }).click();
     await page.getByText("11–20 of 42", { exact: true }).waitFor();
     await page.getByRole("button", { name: "Bundle index" }).click();
+    await page.getByRole("button", { name: "Save as index" }).click();
+    await page.getByRole("button", { name: "Preview changes" }).click();
+    await page.getByRole("button", { name: "Save file" }).click();
+    await page.getByRole("button", { name: "Edit", exact: true }).waitFor();
+    expect(writes.at(-1)?.expectedHash).toBe(null);
+    expect(concepts.has("index.md")).toBe(true);
     await page.locator(".browse").getByRole("link", { name: "Clean test artifacts" }).click();
     await page.getByRole("button", { name: "Graph", exact: true }).click();
     await page.locator("svg .graph-edge").waitFor();
@@ -303,6 +317,7 @@ it.runIf(enabled)(
     await page.getByRole("dialog").waitFor();
     await page.getByRole("button", { name: "Keep editing" }).click();
     await page.getByRole("button", { name: "Preview changes" }).click();
+    await page.getByText("+ My draft.", { exact: false }).waitFor();
     expect(await page.getByText("+ My draft.", { exact: false }).count()).toBeGreaterThan(0);
     forceConflict = true;
     await page.getByRole("button", { name: "Save file" }).click();
@@ -316,8 +331,24 @@ it.runIf(enabled)(
     expect(writes.at(-1)?.expectedHash).toBe("hash-external");
     expect(writes.at(-1)?.authorizePersonal).toBe(true);
     expect(concepts.get("cleanup.md")?.raw).toContain("unknown: keep-me");
+    await page.getByRole("button", { name: "Add concept" }).click();
+    await page.getByLabel("File path within bundle").fill("other.md");
+    await page
+      .getByLabel("Raw Markdown, including YAML metadata")
+      .fill("---\ntype: concept\n---\n\nA conflicting new concept.");
+    await page.getByRole("button", { name: "Preview changes" }).click();
+    await page.getByRole("button", { name: "Save file" }).click();
+    await page.getByRole("heading", { name: "The file changed since you opened it" }).waitFor();
+    expect(await page.locator(".compare").textContent()).toContain("Related facts.");
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await page.getByRole("button", { name: "Discard and continue" }).click();
     await page.getByRole("button", { name: "Edit", exact: true }).click();
     await textarea.fill(`${concepts.get("cleanup.md")!.raw}\nRecovered text.\n`);
+    await page.route("**/api/validate*", (route) => route.abort("connectionrefused"));
+    await page.getByRole("button", { name: "Check bundle" }).click();
+    await page.getByRole("button", { name: "Reload viewer" }).waitFor();
+    expect(await textarea.inputValue()).toContain("Recovered text.");
+    await page.unroute("**/api/validate*");
     await page.reload();
     await page.getByRole("button", { name: "Recover draft" }).waitFor();
     await page.getByRole("button", { name: "Recover draft" }).click();
@@ -359,7 +390,7 @@ it.runIf(enabled)(
     await page.getByRole("button", { name: "Zoom in" }).click();
     await page.getByRole("button", { name: "←", exact: true }).click();
     expect(await page.locator("svg > g").getAttribute("transform")).toContain("scale(1.25)");
-    expect(await page.locator(".graph-list li").count()).toBe(concepts.size);
+    expect(await page.locator(".graph-list li").count()).toBe(concepts.size - 1);
     await page.screenshot({ path: "/tmp/okf-viewer-graph.png", fullPage: true });
     await page.getByRole("button", { name: "Review changes" }).click();
     await page.getByRole("checkbox").check();

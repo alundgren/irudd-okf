@@ -180,7 +180,7 @@ export const errorFrom = (error: unknown): RequestError =>
     ? error
     : new RequestError(
         "connection",
-        error instanceof Error ? error.message : "The local server could not be reached.",
+        "The local server could not be reached. Restart irudd-okf serve and reload this page. Draft recovery is kept in this tab.",
       );
 export function request<K extends keyof Responses>(
   kind: K,
