@@ -67,13 +67,17 @@ describe('local HTTP capability boundary', () => {
         const call = request({ host: '127.0.0.1', port: address.port, method: 'POST', path: '/api/concept', headers: { 'content-type': 'application/json', 'x-okf-session': session } }, response => {
           let body = ''; response.on('data', chunk => { body += chunk; }); response.once('end', () => { call.destroy(); done({ status: response.statusCode ?? 0, body }); });
         });
-        call.once('error', error => { if ((error as NodeJS.ErrnoException).code === 'ECONNRESET') done({ status: null, body: '', code: 'ECONNRESET' }); else reject(error); });
+        call.once('error', error => {
+          const code = (error as NodeJS.ErrnoException).code;
+          if (code === 'ECONNRESET' || code === 'EPIPE') done({ status: null, body: '', code });
+          else reject(error);
+        });
         for (let i = 0; i < 24; i++) call.write('x'.repeat(100_000));
         // Leave the request open: a post-buffer size check would never respond.
       });
-      // Node closes an oversized incoming stream, which can reset its socket
+      // Node closes an oversized incoming stream, which can reset its socket or reject a write
       // before a JSON response is sent. Either outcome must occur before EOF.
-      if (result.status === null) expect(result.code).toBe('ECONNRESET');
+      if (result.status === null) expect(['ECONNRESET', 'EPIPE']).toContain(result.code);
       else { expect(result.status).toBe(400); expect(JSON.parse(result.body)).toMatchObject({ version: 1, error: { code: 'INVALID_INPUT' } }); }
     } finally { await Effect.runPromise(Fiber.interrupt(fiber)); }
   });
