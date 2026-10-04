@@ -18,7 +18,6 @@
   },
   "include": [
     "packages/**/*.ts",
-    "benchmarks/**/*.ts",
     "vite.config.ts"
   ]
 }
