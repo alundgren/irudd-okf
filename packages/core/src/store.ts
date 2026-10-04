@@ -3,7 +3,7 @@ import path from 'node:path';
 import MarkdownIt from 'markdown-it';
 import linkRule from 'markdown-it/lib/rules_inline/link.mjs';
 import referenceRule from 'markdown-it/lib/rules_block/reference.mjs';
-import { OkfError, type Bundle, type Concept, type ConceptSummary, type MemoryContext, type Store, type Operation, type WriteRequest, type DeleteRequest, type RenameRequest, type MutationResult, type RenamePreview } from './contracts.ts';
+import { OkfError, type Bundle, type Concept, type ConceptSummary, type Diagnostic, type MemoryContext, type Store, type Operation, type WriteRequest, type DeleteRequest, type RenameRequest, type MutationResult, type RenamePreview } from './contracts.ts';
 import { operation, guarded, scan, hash, absent, cleanPath, withLock, recovery, atomicReplace, atomicCreate, readRaw } from './files.ts';
 import { decode, WriteSchema, DeleteSchema, RenameSchema } from './schemas.ts';
 import { parseConcept, reserved, resolveLink } from './parser.ts';
@@ -12,6 +12,29 @@ const summary = (concept: Concept): ConceptSummary => ({ bundle: concept.bundle,
 const compare = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
 const bounded = (value: number | undefined, fallback: number, maximum: number) => Number.isFinite(value) ? Math.max(1, Math.min(maximum, Math.floor(value!))) : fallback;
 const id = (concept: { bundle: string; path: string }) => `${concept.bundle}:${concept.path}`;
+function unindexedConcepts(documents: Concept[]): Diagnostic[] {
+  const all = new Map(documents.map(concept => [id(concept), concept]));
+  const indexedBundles = new Set<string>();
+  const reached = new Set<string>();
+  const queue: Concept[] = [];
+  for (const concept of documents.filter(concept => concept.path === 'index.md')) {
+    indexedBundles.add(concept.bundle);
+    reached.add(id(concept));
+    queue.push(concept);
+  }
+  for (let cursor = 0; cursor < queue.length; cursor++) {
+    const source = queue[cursor];
+    for (const link of source.links) {
+      if (link.external || link.broken) continue;
+      const key = id({ bundle: source.bundle, path: link.target });
+      const target = all.get(key);
+      if (!target || reached.has(key)) continue;
+      reached.add(key);
+      queue.push(target);
+    }
+  }
+  return documents.filter(concept => indexedBundles.has(concept.bundle) && !reserved(concept.path) && !reached.has(id(concept))).map(concept => ({ level: 'warning', code: 'UNINDEXED_CONCEPT', bundle: concept.bundle, path: concept.path, message: 'No Markdown-link route from root index.md. Link this note from its topic index or directly related guidance.' }));
+}
 function select(context: MemoryContext, name: string) { const bundle = context.bundles.find(bundle => bundle.name === name); if (!bundle) throw new OkfError('BUNDLE_NOT_FOUND', 'The bundle is not active in this context.', { bundle: name }); return bundle; }
 function writable(bundle: Bundle, request: { authorizePersonal?: boolean }) {
   if (!bundle.writable) throw new OkfError('READ_ONLY', 'This bundle is read-only.');
@@ -264,6 +287,7 @@ export function createStore(input: MemoryContext): Store {
     validate: (options = {}) => operation(async () => {
       const documents = await load(options.bundle, options.lint);
       const diagnostics = documents.flatMap(concept => [ ...concept.diagnostics.filter(diagnostic => options.lint || diagnostic.level === 'error'), ...(options.lint ? concept.links.filter(link => link.broken).map(link => ({ level: 'warning' as const, code: 'BROKEN_LINK', path: concept.path, bundle: concept.bundle, message: `Unavailable link target: ${link.target}` })) : []) ]);
+      if (options.lint) diagnostics.push(...unindexedConcepts(documents));
       return { version: 1, files: documents.length, errors: diagnostics.filter(item => item.level === 'error').length, warnings: diagnostics.filter(item => item.level === 'warning').length, diagnostics };
     }),
     save: request => operation(() => save(decode(WriteSchema, request))),

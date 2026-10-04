@@ -25,6 +25,13 @@ when to consult memory and how to resolve conflicting guidance.
    record one specific, reusable lesson with enough context to act on it. Avoid
    duplicates by searching first. Personal edits require explicit operator
    authorization; repository edits remain ordinary files in the code review diff.
+   Before writing, read the root and relevant topic indexes and follow their
+   authoring conventions. Update an existing concept when it already covers the
+   lesson. Keep the root index short by linking topic indexes; put the new note
+   in the appropriate topic and update its index entry. Add links only where they
+   help retrieve directly related guidance. Follow the bundle's replacement
+   convention when advice changes. Check the changed links, then run scoped
+   validation and lint. Explain which memory paths changed.
 
 CLI discovery follows a short sequence:
 

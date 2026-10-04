@@ -221,6 +221,45 @@ describe('scope and safe mutations', () => {
   });
   it('initializes exclusively and never alters existing files', async () => {
     const f = await fixture(); await run(initializeBundle(f.bundle)); const raw = await fs.readFile(path.join(f.bundle, 'index.md'), 'utf8');
+    expect(raw).toContain('Read this index and the relevant topic index before writing');
+    expect(raw).toContain('rather than\nlisting every note');
+    expect((await run(f.store.validate())).errors).toBe(0);
     await expect(run(initializeBundle(f.bundle))).rejects.toMatchObject({ code: 'ALREADY_EXISTS' }); expect(await fs.readFile(path.join(f.bundle, 'index.md'), 'utf8')).toBe(raw);
+  });
+});
+
+describe('optional navigation lint', () => {
+  it('finds disconnected concepts but follows topic maps, related notes and replacement cycles', async () => {
+    const f = await fixture();
+    await f.write('index.md', '# Knowledge\n[topic](topic/)\n');
+    await f.write('topic/index.md', '# Topic\n[current](current.md)\n');
+    await f.write('topic/current.md', document('Current', '[old](old.md)\n'));
+    await f.write('topic/old.md', document('Old', '[replacement](current.md)\n'));
+    await f.write('forgotten.md', document('Forgotten'));
+    expect((await run(f.store.validate())).diagnostics).toEqual([]);
+    const lint = await run(f.store.validate({ lint: true }));
+    expect(lint.diagnostics.filter(d => d.code === 'UNINDEXED_CONCEPT').map(d => d.path)).toEqual(['forgotten.md']);
+    expect(lint.errors).toBe(0);
+    const index = await run(f.store.read('repo', 'topic/index.md'));
+    await run(f.store.save({ bundle: 'repo', path: index.path, raw: index.raw + '[forgotten](../forgotten.md)\n', expectedHash: index.hash }));
+    expect((await run(f.store.validate({ lint: true }))).warnings).toBe(0);
+  });
+
+  it('keeps root indexes optional and treats external URLs as external', async () => {
+    const f = await fixture(); await f.write('note.md', document('No index'));
+    expect((await run(f.store.validate({ lint: true }))).warnings).toBe(0);
+    await f.write('index.md', '# Guide\n[external](https://example.invalid/note.md)\n[missing](missing.md)\n');
+    const lint = await run(f.store.validate({ lint: true }));
+    expect(lint.diagnostics.map(d => d.code).sort()).toEqual(['BROKEN_LINK', 'UNINDEXED_CONCEPT']);
+    expect(lint.errors).toBe(0);
+  });
+
+  it('keeps navigation inside each bundle', async () => {
+    const f = await fixture(); await f.write('index.md', '# Repo\n[note](note.md)\n'); await f.write('note.md', document('Repo note'));
+    const personal = path.join(f.root, 'personal'); await fs.mkdir(personal);
+    await fs.writeFile(path.join(personal, 'index.md'), '# Personal\n'); await fs.writeFile(path.join(personal, 'note.md'), document('Personal note'));
+    const store = createStore({ ...f.context, bundles: [...f.context.bundles, { name: 'personal', root: personal, kind: 'personal', writable: true }] });
+    expect((await run(store.validate({ lint: true }))).diagnostics).toEqual([expect.objectContaining({ code: 'UNINDEXED_CONCEPT', bundle: 'personal', path: 'note.md' })]);
+    expect((await run(store.validate({ bundle: 'repo', lint: true }))).warnings).toBe(0);
   });
 });
