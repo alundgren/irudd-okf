@@ -1,0 +1,10 @@
+I’ll read the repository guidance for payment boundaries, timeout retries, and submission behavior, then explain what needs to change before approval.
+I would request changes based on the behavior described:
+
+- **Restore the payment boundary.** Have the UI call the checkout application interface, with the payment implementation behind that boundary. Keep payment orchestration and retry decisions out of UI handlers.
+- **Preserve request identity after a timeout.** A timeout leaves the payment outcome unknown; the original request may have succeeded. Resolve its status or retry using the same logical request and idempotency key. Creating a fresh payment request risks a duplicate charge.
+- **Handle unresolved submission explicitly.** Prevent duplicate submissions while payment is pending or its outcome is unknown. Show that uncertainty and provide recovery through the existing request. Require tests covering a payment that succeeds before its response times out, repeated clicks, and recovery without a second charge.
+
+Your supplied `AGENTS.md` routes payment boundaries and retries to architecture, submission interactions to UX, and package commands to tests. It also requires reading the [repository locator](/tmp/okf-agent-run-Q9S7kk/repository/.okf/index.md) and applying guidance only to its stated path.
+
+**I couldn’t complete the repository-grounded review:** every file-read command failed because the sandbox could not open its mount-registry lock. I have therefore not inspected the refactor or read the locator and concept files, and cannot honestly cite their requirements. The findings above are provisional; completing the requested review requires access to those files or their pasted contents.

@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "cwd": "packages/checkout",
+  "workspace": "fresh isolated synthetic repository",
+  "prompt": "Review a checkout submission interaction that removes the submit control while waiting and then inserts a plain error paragraph. Explain what needs changing for this repository. Cite the repository guidance you used.",
+  "writable": false,
+  "timeout_ms": 150000
+}

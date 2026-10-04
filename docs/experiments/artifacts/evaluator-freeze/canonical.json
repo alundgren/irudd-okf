@@ -1,0 +1,1202 @@
+[
+  {
+    "title": "Checkout execution boundary",
+    "category": "architecture",
+    "scope": "packages/checkout",
+    "text": "Checkout orchestration calls the payment gateway through payments/port.ts. UI code must never import payments/gateway.ts. Inject the port for tests.",
+    "id": "d46df5f828f3c539",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "fixed:0"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "Payment retry behavior",
+    "category": "architecture",
+    "scope": "packages/checkout",
+    "text": "A timeout after gateway submission leaves payment outcome unknown. Use the original idempotency key for a retry and reconcile status before creating another payment.",
+    "id": "55276b61ea01db8a",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "fixed:1"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "Checkout submission accessibility",
+    "category": "ux",
+    "scope": "packages/checkout",
+    "text": "During checkout submission keep the submit button mounted, disable duplicate submission, set aria-busy on the form, and announce completion or failure in the existing live region.",
+    "id": "c664ab23fb2c6c32",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "fixed:2"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "Checkout package workflow",
+    "category": "tests",
+    "scope": "packages/checkout",
+    "text": "The benchmark checkout package uses npm ci and npm test. Its package-lock.json is required; do not replace it with another package manager lockfile.",
+    "id": "3810a797307a00be",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "fixed:3"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "Invoice package workflow",
+    "category": "tests",
+    "scope": "packages/invoices",
+    "text": "The benchmark invoices package uses pnpm install --frozen-lockfile and pnpm test. This instruction applies only to packages/invoices.",
+    "id": "d54ef2f7cc1ac7e9",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "fixed:4"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "Recorded incident evidence",
+    "category": "documentation",
+    "scope": "packages/checkout",
+    "text": "Capture a new incident only after reproducing it. Include affected path, observed failure, successful mitigation, and a verification command. Update an existing matching incident instead of adding a duplicate.",
+    "id": "b6de55014925488b",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "fixed:5"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00006 data",
+    "category": "data",
+    "scope": "packages/invoices/cases/case-00006",
+    "text": "Remove the record-00006 session identifier before logging events from packages/invoices/cases/case-00006/logging.ts.",
+    "id": "08845856f55a2d16",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "data"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00007 compatibility",
+    "category": "compatibility",
+    "scope": "packages/checkout-tools/cases/case-00007",
+    "text": "Preserve the optional record-00007 callback argument in packages/checkout-tools/cases/case-00007/api.ts.",
+    "id": "d26ddd18f02888a3",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "compatibility"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00008 documentation",
+    "category": "documentation",
+    "scope": "packages/invoices/cases/case-00008",
+    "text": "Update the record-00008 command example when its flags change in packages/invoices/cases/case-00008/README.md.",
+    "id": "81a69aa62238fca5",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "documentation"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00009 debugging",
+    "category": "debugging",
+    "scope": "packages/checkout-tools/cases/case-00009",
+    "text": "Record the record-00009 response status before restarting its worker in packages/checkout-tools/cases/case-00009/worker.ts.",
+    "id": "a91dbebbbe716dc7",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "debugging"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00010 tests",
+    "category": "tests",
+    "scope": "packages/invoices/cases/case-00010",
+    "text": "Run the fixture test for record-00010 after modifying packages/invoices/cases/case-00010.",
+    "id": "8587a1a1d446f6cf",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "tests"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00011 architecture",
+    "category": "architecture",
+    "scope": "packages/checkout-tools/cases/case-00011",
+    "text": "Route record-00011 persistence through its local adapter in packages/checkout-tools/cases/case-00011/adapter.ts.",
+    "id": "5b32dbf25de1eaeb",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "architecture"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00012 ux",
+    "category": "ux",
+    "scope": "packages/invoices/cases/case-00012",
+    "text": "Display the record-00012 operation outcome in packages/invoices/cases/case-00012/status.ts using its existing status message.",
+    "id": "11c96a05c67b6340",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "ux"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00013 accessibility",
+    "category": "accessibility",
+    "scope": "packages/checkout-tools/cases/case-00013",
+    "text": "Associate record-00013 input errors with the field using aria-describedby in packages/checkout-tools/cases/case-00013/form.ts.",
+    "id": "88118a59886319e3",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "accessibility"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00014 formatting",
+    "category": "formatting",
+    "scope": "packages/invoices/cases/case-00014",
+    "text": "Keep the record-00014 export entries alphabetically ordered in packages/invoices/cases/case-00014/exports.ts.",
+    "id": "f7b62317f7ee6ff2",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "formatting"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00015 release",
+    "category": "release",
+    "scope": "packages/checkout-tools/cases/case-00015",
+    "text": "Build record-00015 before packaging its artifact from packages/checkout-tools/cases/case-00015/release.ts.",
+    "id": "b5b7d8f3dfc0bb62",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "release"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00016 data",
+    "category": "data",
+    "scope": "packages/invoices/cases/case-00016",
+    "text": "Remove the record-00016 session identifier before logging events from packages/invoices/cases/case-00016/logging.ts.",
+    "id": "7c6541fc0144640f",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "data"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00017 compatibility",
+    "category": "compatibility",
+    "scope": "packages/checkout-tools/cases/case-00017",
+    "text": "Preserve the optional record-00017 callback argument in packages/checkout-tools/cases/case-00017/api.ts.",
+    "id": "a49d476ae6acc3e2",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "compatibility"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00018 documentation",
+    "category": "documentation",
+    "scope": "packages/invoices/cases/case-00018",
+    "text": "Update the record-00018 command example when its flags change in packages/invoices/cases/case-00018/README.md.",
+    "id": "f17abfd566479ef5",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "documentation"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00019 debugging",
+    "category": "debugging",
+    "scope": "packages/checkout-tools/cases/case-00019",
+    "text": "Record the record-00019 response status before restarting its worker in packages/checkout-tools/cases/case-00019/worker.ts.",
+    "id": "c270bf94e5b22116",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "debugging"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00020 tests",
+    "category": "tests",
+    "scope": "packages/invoices/cases/case-00020",
+    "text": "Run the fixture test for record-00020 after modifying packages/invoices/cases/case-00020.",
+    "id": "0ae1352fab9d74e8",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "tests"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00021 architecture",
+    "category": "architecture",
+    "scope": "packages/checkout-tools/cases/case-00021",
+    "text": "Route record-00021 persistence through its local adapter in packages/checkout-tools/cases/case-00021/adapter.ts.",
+    "id": "e6d74b4d7f8a5152",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "architecture"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00022 ux",
+    "category": "ux",
+    "scope": "packages/invoices/cases/case-00022",
+    "text": "Display the record-00022 operation outcome in packages/invoices/cases/case-00022/status.ts using its existing status message.",
+    "id": "0da08cace4a57972",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "ux"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00023 accessibility",
+    "category": "accessibility",
+    "scope": "packages/checkout-tools/cases/case-00023",
+    "text": "Associate record-00023 input errors with the field using aria-describedby in packages/checkout-tools/cases/case-00023/form.ts.",
+    "id": "da958fb59a5f4ea2",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "accessibility"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00024 formatting",
+    "category": "formatting",
+    "scope": "packages/invoices/cases/case-00024",
+    "text": "Keep the record-00024 export entries alphabetically ordered in packages/invoices/cases/case-00024/exports.ts.",
+    "id": "d5bc6d1a630e2819",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "formatting"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00025 release",
+    "category": "release",
+    "scope": "packages/checkout-tools/cases/case-00025",
+    "text": "Build record-00025 before packaging its artifact from packages/checkout-tools/cases/case-00025/release.ts.",
+    "id": "55a6c4a3e06408c2",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "release"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00026 data",
+    "category": "data",
+    "scope": "packages/invoices/cases/case-00026",
+    "text": "Remove the record-00026 session identifier before logging events from packages/invoices/cases/case-00026/logging.ts.",
+    "id": "c5d9030ecebe6dd9",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "data"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00027 compatibility",
+    "category": "compatibility",
+    "scope": "packages/checkout-tools/cases/case-00027",
+    "text": "Preserve the optional record-00027 callback argument in packages/checkout-tools/cases/case-00027/api.ts.",
+    "id": "d4d042e3a431d267",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "compatibility"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00028 documentation",
+    "category": "documentation",
+    "scope": "packages/invoices/cases/case-00028",
+    "text": "Update the record-00028 command example when its flags change in packages/invoices/cases/case-00028/README.md.",
+    "id": "167554245db16b18",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "documentation"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00029 debugging",
+    "category": "debugging",
+    "scope": "packages/checkout-tools/cases/case-00029",
+    "text": "Record the record-00029 response status before restarting its worker in packages/checkout-tools/cases/case-00029/worker.ts.",
+    "id": "949c0339cadfd8fd",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "debugging"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00030 tests",
+    "category": "tests",
+    "scope": "packages/invoices/cases/case-00030",
+    "text": "Run the fixture test for record-00030 after modifying packages/invoices/cases/case-00030.",
+    "id": "a989a3fa8384a809",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "tests"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00031 architecture",
+    "category": "architecture",
+    "scope": "packages/checkout-tools/cases/case-00031",
+    "text": "Route record-00031 persistence through its local adapter in packages/checkout-tools/cases/case-00031/adapter.ts.",
+    "id": "4a0d8fc9ab4447f9",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "architecture"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00032 ux",
+    "category": "ux",
+    "scope": "packages/invoices/cases/case-00032",
+    "text": "Display the record-00032 operation outcome in packages/invoices/cases/case-00032/status.ts using its existing status message.",
+    "id": "b929b1b36193ee93",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "ux"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00033 accessibility",
+    "category": "accessibility",
+    "scope": "packages/checkout-tools/cases/case-00033",
+    "text": "Associate record-00033 input errors with the field using aria-describedby in packages/checkout-tools/cases/case-00033/form.ts.",
+    "id": "5b2ffc3afa1e90a4",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "accessibility"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00034 formatting",
+    "category": "formatting",
+    "scope": "packages/invoices/cases/case-00034",
+    "text": "Keep the record-00034 export entries alphabetically ordered in packages/invoices/cases/case-00034/exports.ts.",
+    "id": "c783957fa4958f67",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "formatting"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00035 release",
+    "category": "release",
+    "scope": "packages/checkout-tools/cases/case-00035",
+    "text": "Build record-00035 before packaging its artifact from packages/checkout-tools/cases/case-00035/release.ts.",
+    "id": "b64afbfa8b4fda38",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "release"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00036 data",
+    "category": "data",
+    "scope": "packages/invoices/cases/case-00036",
+    "text": "Remove the record-00036 session identifier before logging events from packages/invoices/cases/case-00036/logging.ts.",
+    "id": "80a3a55cc5f407fe",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "data"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00037 compatibility",
+    "category": "compatibility",
+    "scope": "packages/checkout-tools/cases/case-00037",
+    "text": "Preserve the optional record-00037 callback argument in packages/checkout-tools/cases/case-00037/api.ts.",
+    "id": "f25e8f9590f8a044",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "compatibility"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00038 documentation",
+    "category": "documentation",
+    "scope": "packages/invoices/cases/case-00038",
+    "text": "Update the record-00038 command example when its flags change in packages/invoices/cases/case-00038/README.md.",
+    "id": "0843997f49706066",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "documentation"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00039 debugging",
+    "category": "debugging",
+    "scope": "packages/checkout-tools/cases/case-00039",
+    "text": "Record the record-00039 response status before restarting its worker in packages/checkout-tools/cases/case-00039/worker.ts.",
+    "id": "cf26da552b18d6ce",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "debugging"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00040 tests",
+    "category": "tests",
+    "scope": "packages/invoices/cases/case-00040",
+    "text": "Run the fixture test for record-00040 after modifying packages/invoices/cases/case-00040.",
+    "id": "4f97c576333aa074",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "tests"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00041 architecture",
+    "category": "architecture",
+    "scope": "packages/checkout-tools/cases/case-00041",
+    "text": "Route record-00041 persistence through its local adapter in packages/checkout-tools/cases/case-00041/adapter.ts.",
+    "id": "9d230c86bcbcd71c",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "architecture"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00042 ux",
+    "category": "ux",
+    "scope": "packages/invoices/cases/case-00042",
+    "text": "Display the record-00042 operation outcome in packages/invoices/cases/case-00042/status.ts using its existing status message.",
+    "id": "fd6adbd046635f96",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "ux"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00043 accessibility",
+    "category": "accessibility",
+    "scope": "packages/checkout-tools/cases/case-00043",
+    "text": "Associate record-00043 input errors with the field using aria-describedby in packages/checkout-tools/cases/case-00043/form.ts.",
+    "id": "ec0aa3f3b6a0c97b",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "accessibility"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00044 formatting",
+    "category": "formatting",
+    "scope": "packages/invoices/cases/case-00044",
+    "text": "Keep the record-00044 export entries alphabetically ordered in packages/invoices/cases/case-00044/exports.ts.",
+    "id": "a2a96cc74a991827",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "formatting"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00045 release",
+    "category": "release",
+    "scope": "packages/checkout-tools/cases/case-00045",
+    "text": "Build record-00045 before packaging its artifact from packages/checkout-tools/cases/case-00045/release.ts.",
+    "id": "47616e2d562cf02d",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "release"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00046 data",
+    "category": "data",
+    "scope": "packages/invoices/cases/case-00046",
+    "text": "Remove the record-00046 session identifier before logging events from packages/invoices/cases/case-00046/logging.ts.",
+    "id": "24efd004de45b3d4",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "data"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00047 compatibility",
+    "category": "compatibility",
+    "scope": "packages/checkout-tools/cases/case-00047",
+    "text": "Preserve the optional record-00047 callback argument in packages/checkout-tools/cases/case-00047/api.ts.",
+    "id": "908f8fb902f8da78",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "compatibility"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00048 documentation",
+    "category": "documentation",
+    "scope": "packages/invoices/cases/case-00048",
+    "text": "Update the record-00048 command example when its flags change in packages/invoices/cases/case-00048/README.md.",
+    "id": "b67a8fa98a8c8f7d",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "documentation"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00049 debugging",
+    "category": "debugging",
+    "scope": "packages/checkout-tools/cases/case-00049",
+    "text": "Record the record-00049 response status before restarting its worker in packages/checkout-tools/cases/case-00049/worker.ts.",
+    "id": "98ede115d2a8d0ea",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "debugging"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00050 tests",
+    "category": "tests",
+    "scope": "packages/invoices/cases/case-00050",
+    "text": "Run the fixture test for record-00050 after modifying packages/invoices/cases/case-00050.",
+    "id": "166b3b8becaa922b",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "tests"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00051 architecture",
+    "category": "architecture",
+    "scope": "packages/checkout-tools/cases/case-00051",
+    "text": "Route record-00051 persistence through its local adapter in packages/checkout-tools/cases/case-00051/adapter.ts.",
+    "id": "8ac1d15ca7d474aa",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "architecture"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00052 ux",
+    "category": "ux",
+    "scope": "packages/invoices/cases/case-00052",
+    "text": "Display the record-00052 operation outcome in packages/invoices/cases/case-00052/status.ts using its existing status message.",
+    "id": "01f2eef78807d2d3",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "ux"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00053 accessibility",
+    "category": "accessibility",
+    "scope": "packages/checkout-tools/cases/case-00053",
+    "text": "Associate record-00053 input errors with the field using aria-describedby in packages/checkout-tools/cases/case-00053/form.ts.",
+    "id": "09bba63f25d8257e",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "accessibility"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00054 formatting",
+    "category": "formatting",
+    "scope": "packages/invoices/cases/case-00054",
+    "text": "Keep the record-00054 export entries alphabetically ordered in packages/invoices/cases/case-00054/exports.ts.",
+    "id": "891bb48e2c53f370",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "formatting"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00055 release",
+    "category": "release",
+    "scope": "packages/checkout-tools/cases/case-00055",
+    "text": "Build record-00055 before packaging its artifact from packages/checkout-tools/cases/case-00055/release.ts.",
+    "id": "a3afb94b29c84edd",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "release"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00056 data",
+    "category": "data",
+    "scope": "packages/invoices/cases/case-00056",
+    "text": "Remove the record-00056 session identifier before logging events from packages/invoices/cases/case-00056/logging.ts.",
+    "id": "ea46c07870d7efed",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "data"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00057 compatibility",
+    "category": "compatibility",
+    "scope": "packages/checkout-tools/cases/case-00057",
+    "text": "Preserve the optional record-00057 callback argument in packages/checkout-tools/cases/case-00057/api.ts.",
+    "id": "d4192bb54f3fa927",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "compatibility"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00058 documentation",
+    "category": "documentation",
+    "scope": "packages/invoices/cases/case-00058",
+    "text": "Update the record-00058 command example when its flags change in packages/invoices/cases/case-00058/README.md.",
+    "id": "1004f959d80640da",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "documentation"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00059 debugging",
+    "category": "debugging",
+    "scope": "packages/checkout-tools/cases/case-00059",
+    "text": "Record the record-00059 response status before restarting its worker in packages/checkout-tools/cases/case-00059/worker.ts.",
+    "id": "8cd3a3d451ba5cda",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "debugging"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00060 tests",
+    "category": "tests",
+    "scope": "packages/invoices/cases/case-00060",
+    "text": "Run the fixture test for record-00060 after modifying packages/invoices/cases/case-00060.",
+    "id": "f776c9e6e467369b",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "tests"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00061 architecture",
+    "category": "architecture",
+    "scope": "packages/checkout-tools/cases/case-00061",
+    "text": "Route record-00061 persistence through its local adapter in packages/checkout-tools/cases/case-00061/adapter.ts.",
+    "id": "88fc2f009959e42b",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "architecture"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00062 ux",
+    "category": "ux",
+    "scope": "packages/invoices/cases/case-00062",
+    "text": "Display the record-00062 operation outcome in packages/invoices/cases/case-00062/status.ts using its existing status message.",
+    "id": "457ec5fc99a570d4",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "ux"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00063 accessibility",
+    "category": "accessibility",
+    "scope": "packages/checkout-tools/cases/case-00063",
+    "text": "Associate record-00063 input errors with the field using aria-describedby in packages/checkout-tools/cases/case-00063/form.ts.",
+    "id": "bcfa2e80f407a6a1",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "accessibility"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00064 formatting",
+    "category": "formatting",
+    "scope": "packages/invoices/cases/case-00064",
+    "text": "Keep the record-00064 export entries alphabetically ordered in packages/invoices/cases/case-00064/exports.ts.",
+    "id": "d6ead2ff1438bdb6",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "formatting"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00065 release",
+    "category": "release",
+    "scope": "packages/checkout-tools/cases/case-00065",
+    "text": "Build record-00065 before packaging its artifact from packages/checkout-tools/cases/case-00065/release.ts.",
+    "id": "9a097b513588e46a",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "release"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00066 data",
+    "category": "data",
+    "scope": "packages/invoices/cases/case-00066",
+    "text": "Remove the record-00066 session identifier before logging events from packages/invoices/cases/case-00066/logging.ts.",
+    "id": "ad73c44d1841b135",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "data"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00067 compatibility",
+    "category": "compatibility",
+    "scope": "packages/checkout-tools/cases/case-00067",
+    "text": "Preserve the optional record-00067 callback argument in packages/checkout-tools/cases/case-00067/api.ts.",
+    "id": "c449c2f753d4c167",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "compatibility"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00068 documentation",
+    "category": "documentation",
+    "scope": "packages/invoices/cases/case-00068",
+    "text": "Update the record-00068 command example when its flags change in packages/invoices/cases/case-00068/README.md.",
+    "id": "cc7945ceac8bee0c",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "documentation"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00069 debugging",
+    "category": "debugging",
+    "scope": "packages/checkout-tools/cases/case-00069",
+    "text": "Record the record-00069 response status before restarting its worker in packages/checkout-tools/cases/case-00069/worker.ts.",
+    "id": "aacd05762c7ac0b1",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "debugging"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00070 tests",
+    "category": "tests",
+    "scope": "packages/invoices/cases/case-00070",
+    "text": "Run the fixture test for record-00070 after modifying packages/invoices/cases/case-00070.",
+    "id": "8f8f690c1b99fd3c",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "tests"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00071 architecture",
+    "category": "architecture",
+    "scope": "packages/checkout-tools/cases/case-00071",
+    "text": "Route record-00071 persistence through its local adapter in packages/checkout-tools/cases/case-00071/adapter.ts.",
+    "id": "795c119d94c289a9",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "architecture"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00072 ux",
+    "category": "ux",
+    "scope": "packages/invoices/cases/case-00072",
+    "text": "Display the record-00072 operation outcome in packages/invoices/cases/case-00072/status.ts using its existing status message.",
+    "id": "c3c76445d10d66ff",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "ux"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00073 accessibility",
+    "category": "accessibility",
+    "scope": "packages/checkout-tools/cases/case-00073",
+    "text": "Associate record-00073 input errors with the field using aria-describedby in packages/checkout-tools/cases/case-00073/form.ts.",
+    "id": "4daa8bdfc83a6bb9",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "accessibility"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00074 formatting",
+    "category": "formatting",
+    "scope": "packages/invoices/cases/case-00074",
+    "text": "Keep the record-00074 export entries alphabetically ordered in packages/invoices/cases/case-00074/exports.ts.",
+    "id": "9a0cb7b8c7886683",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "formatting"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00075 release",
+    "category": "release",
+    "scope": "packages/checkout-tools/cases/case-00075",
+    "text": "Build record-00075 before packaging its artifact from packages/checkout-tools/cases/case-00075/release.ts.",
+    "id": "913536f17c71cca3",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "release"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00076 data",
+    "category": "data",
+    "scope": "packages/invoices/cases/case-00076",
+    "text": "Remove the record-00076 session identifier before logging events from packages/invoices/cases/case-00076/logging.ts.",
+    "id": "f3f1d73b885bda16",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "data"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00077 compatibility",
+    "category": "compatibility",
+    "scope": "packages/checkout-tools/cases/case-00077",
+    "text": "Preserve the optional record-00077 callback argument in packages/checkout-tools/cases/case-00077/api.ts.",
+    "id": "b7a1b6dc06cfaa82",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "compatibility"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00078 documentation",
+    "category": "documentation",
+    "scope": "packages/invoices/cases/case-00078",
+    "text": "Update the record-00078 command example when its flags change in packages/invoices/cases/case-00078/README.md.",
+    "id": "4006e9475bf6503a",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "documentation"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00079 debugging",
+    "category": "debugging",
+    "scope": "packages/checkout-tools/cases/case-00079",
+    "text": "Record the record-00079 response status before restarting its worker in packages/checkout-tools/cases/case-00079/worker.ts.",
+    "id": "bdc40fc419c169ad",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "debugging"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00080 tests",
+    "category": "tests",
+    "scope": "packages/invoices/cases/case-00080",
+    "text": "Run the fixture test for record-00080 after modifying packages/invoices/cases/case-00080.",
+    "id": "0410d936f5b870b4",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "tests"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00081 architecture",
+    "category": "architecture",
+    "scope": "packages/checkout-tools/cases/case-00081",
+    "text": "Route record-00081 persistence through its local adapter in packages/checkout-tools/cases/case-00081/adapter.ts.",
+    "id": "5a348c9a48dd68b8",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "architecture"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00082 ux",
+    "category": "ux",
+    "scope": "packages/invoices/cases/case-00082",
+    "text": "Display the record-00082 operation outcome in packages/invoices/cases/case-00082/status.ts using its existing status message.",
+    "id": "255b2f631fa296be",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "ux"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00083 accessibility",
+    "category": "accessibility",
+    "scope": "packages/checkout-tools/cases/case-00083",
+    "text": "Associate record-00083 input errors with the field using aria-describedby in packages/checkout-tools/cases/case-00083/form.ts.",
+    "id": "399f49c823d04093",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "accessibility"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00084 formatting",
+    "category": "formatting",
+    "scope": "packages/invoices/cases/case-00084",
+    "text": "Keep the record-00084 export entries alphabetically ordered in packages/invoices/cases/case-00084/exports.ts.",
+    "id": "6456585f229c4d32",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "formatting"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00085 release",
+    "category": "release",
+    "scope": "packages/checkout-tools/cases/case-00085",
+    "text": "Build record-00085 before packaging its artifact from packages/checkout-tools/cases/case-00085/release.ts.",
+    "id": "4c30987c5ab8b142",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "release"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00086 data",
+    "category": "data",
+    "scope": "packages/invoices/cases/case-00086",
+    "text": "Remove the record-00086 session identifier before logging events from packages/invoices/cases/case-00086/logging.ts.",
+    "id": "2bad0df47c2479aa",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "data"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00087 compatibility",
+    "category": "compatibility",
+    "scope": "packages/checkout-tools/cases/case-00087",
+    "text": "Preserve the optional record-00087 callback argument in packages/checkout-tools/cases/case-00087/api.ts.",
+    "id": "2ace63de4c792c0b",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "compatibility"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00088 documentation",
+    "category": "documentation",
+    "scope": "packages/invoices/cases/case-00088",
+    "text": "Update the record-00088 command example when its flags change in packages/invoices/cases/case-00088/README.md.",
+    "id": "869e4841ff078722",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "documentation"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00089 debugging",
+    "category": "debugging",
+    "scope": "packages/checkout-tools/cases/case-00089",
+    "text": "Record the record-00089 response status before restarting its worker in packages/checkout-tools/cases/case-00089/worker.ts.",
+    "id": "786e81fc6b6c45dc",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "debugging"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00090 tests",
+    "category": "tests",
+    "scope": "packages/invoices/cases/case-00090",
+    "text": "Run the fixture test for record-00090 after modifying packages/invoices/cases/case-00090.",
+    "id": "0bed655565771764",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "tests"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00091 architecture",
+    "category": "architecture",
+    "scope": "packages/checkout-tools/cases/case-00091",
+    "text": "Route record-00091 persistence through its local adapter in packages/checkout-tools/cases/case-00091/adapter.ts.",
+    "id": "07dcae31cfff7d3e",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "architecture"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00092 ux",
+    "category": "ux",
+    "scope": "packages/invoices/cases/case-00092",
+    "text": "Display the record-00092 operation outcome in packages/invoices/cases/case-00092/status.ts using its existing status message.",
+    "id": "4aa05689bff3fc2d",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "ux"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00093 accessibility",
+    "category": "accessibility",
+    "scope": "packages/checkout-tools/cases/case-00093",
+    "text": "Associate record-00093 input errors with the field using aria-describedby in packages/checkout-tools/cases/case-00093/form.ts.",
+    "id": "837f34c2a616e703",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "accessibility"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00094 formatting",
+    "category": "formatting",
+    "scope": "packages/invoices/cases/case-00094",
+    "text": "Keep the record-00094 export entries alphabetically ordered in packages/invoices/cases/case-00094/exports.ts.",
+    "id": "df21a957b2d206a4",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "formatting"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00095 release",
+    "category": "release",
+    "scope": "packages/checkout-tools/cases/case-00095",
+    "text": "Build record-00095 before packaging its artifact from packages/checkout-tools/cases/case-00095/release.ts.",
+    "id": "3aafffd14c88de79",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "release"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00096 data",
+    "category": "data",
+    "scope": "packages/invoices/cases/case-00096",
+    "text": "Remove the record-00096 session identifier before logging events from packages/invoices/cases/case-00096/logging.ts.",
+    "id": "49dcce540675d83f",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "data"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00097 compatibility",
+    "category": "compatibility",
+    "scope": "packages/checkout-tools/cases/case-00097",
+    "text": "Preserve the optional record-00097 callback argument in packages/checkout-tools/cases/case-00097/api.ts.",
+    "id": "8538af04105de293",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "compatibility"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00098 documentation",
+    "category": "documentation",
+    "scope": "packages/invoices/cases/case-00098",
+    "text": "Update the record-00098 command example when its flags change in packages/invoices/cases/case-00098/README.md.",
+    "id": "512fb796c54a1305",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "documentation"
+    },
+    "synthetic": true
+  },
+  {
+    "title": "record-00099 debugging",
+    "category": "debugging",
+    "scope": "packages/checkout-tools/cases/case-00099",
+    "text": "Record the record-00099 response status before restarting its worker in packages/checkout-tools/cases/case-00099/worker.ts.",
+    "id": "4673dbe023d6c909",
+    "source": {
+      "path": "benchmarks/corpus.mjs",
+      "template": "debugging"
+    },
+    "synthetic": true
+  }
+]

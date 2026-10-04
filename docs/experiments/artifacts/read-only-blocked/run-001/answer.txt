@@ -1,0 +1,9 @@
+I’ll read the checkout code and linked guidance, then identify what needs to change before approval. I’m using the code-guidance and ux-design skills for the review, and unslop for the write-up.
+I would request changes based on the behavior described.
+
+- **Restore the payment boundary.** The UI should call the checkout application interface; that layer should coordinate payment through its defined contract. Move the direct implementation call out of the UI.
+- **Preserve payment identity after a timeout.** A timeout leaves the outcome unknown: the original payment may have succeeded. Retain the original request identity and idempotency key, reconcile its status, and reuse that identity for any supported retry. Creating a new payment request can cause a duplicate charge.
+- **Represent the unresolved state in the UI.** Show that payment confirmation is pending, preserve checkout input, and prevent another submission while the original outcome remains unresolved. Offer a recovery action that checks or resumes the existing attempt.
+- **Add regression coverage before approval.** Verify that a payment accepted before its response times out produces only one charge, retries retain identity, repeated clicks cannot create concurrent payments, and delayed confirmation resolves the UI correctly.
+
+I could not verify the implementation or cite repository guidance as used: every filesystem read failed with a sandbox mount-lock permission error. Your supplied `AGENTS.md` instructions require reading [architecture.md](/tmp/okf-agent-run-GW0fBM/repository/guidance/architecture.md), [ux.md](/tmp/okf-agent-run-GW0fBM/repository/guidance/ux.md), and [tests.md](/tmp/okf-agent-run-GW0fBM/repository/guidance/tests.md), applying each only to its stated paths. Those documents remain unread, so this is a provisional review, not a completed repository review.

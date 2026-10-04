@@ -1,0 +1,11 @@
+I’ll read the checkout package guidance and relevant review skills, then check the submission interaction against the repository’s requirements.
+The described interaction needs two changes:
+
+- **Keep the submit control mounted while waiting.** Show a pending label, prevent duplicate submissions, and preserve its position. Removing it can lose keyboard focus and shift the layout. Re-enable submission after failure.
+- **Make the error accessible and actionable.** A newly inserted plain paragraph may go unannounced. Use the repository’s error announcement and focus pattern, preserve entered values, and provide a clear recovery action.
+
+Verify pending, failure, and retry behavior, including keyboard focus and error announcement.
+
+These are preliminary recommendations; I could not verify this repository’s specific requirements. The supplied [package AGENTS.md](/tmp/okf-agent-run-aGigdc/repository/packages/checkout/AGENTS.md) directs me to read linked guidance and apply each rule only to its stated path. File reads failed because the sandbox could not open its mount-registry lock.
+
+To complete the repository-specific review with accurate citations, I need the contents of [ux.md](/tmp/okf-agent-run-aGigdc/repository/guidance/ux.md), [architecture.md](/tmp/okf-agent-run-aGigdc/repository/guidance/architecture.md), and [tests.md](/tmp/okf-agent-run-aGigdc/repository/guidance/tests.md).
