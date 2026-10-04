@@ -83,6 +83,17 @@ Command results are JSON. Diagnostics go to stderr. The small
 Native skills remain useful for task procedures. Nothing injects the entire
 memory corpus or all its triggers into the agent's context.
 
+With Vite+ installed, install the skill globally from GitHub for Codex and
+Claude Code:
+
+```sh
+vp dlx skills add alundgren/irudd-okf --skill okf --global --agent codex claude-code --yes
+```
+
+`vp dlx` uses the workspace's selected package manager, including pnpm.
+Omit `--agent codex claude-code --yes` to choose agents interactively.
+Install the CLI executable separately using the command in [Try it](#try-it).
+
 ## Personal plus repository knowledge
 
 Repository `.okf` discovery stays inside the current Git repository. Named
