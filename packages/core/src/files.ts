@@ -90,8 +90,19 @@ export async function recovery(root: string, raw: string): Promise<string> {
 export async function atomicReplace(file: string, raw: string): Promise<void> {
   const temporary = path.join(path.dirname(file), `.okf-${randomUUID()}.tmp`);
   const handle = await fs.open(temporary, 'wx', 0o600);
-  try { await handle.writeFile(raw); await handle.sync(); } finally { await handle.close(); }
-  try { await fs.rename(temporary, file); } finally { await fs.unlink(temporary).catch(error => { if (!absent(error)) throw error; }); }
+  try {
+    try { await handle.writeFile(raw); await handle.sync(); } finally { await handle.close(); }
+    await fs.rename(temporary, file);
+  } finally { await fs.unlink(temporary).catch(error => { if (!absent(error)) throw error; }); }
+}
+export async function atomicCreate(file: string, raw: string): Promise<void> {
+  const temporary = path.join(path.dirname(file), `.okf-${randomUUID()}.tmp`);
+  const handle = await fs.open(temporary, 'wx', 0o600);
+  try {
+    try { await handle.writeFile(raw); await handle.sync(); } finally { await handle.close(); }
+    // A hard link publishes complete bytes and fails if another writer already owns the destination.
+    await fs.link(temporary, file);
+  } finally { await fs.unlink(temporary).catch(error => { if (!absent(error)) throw error; }); }
 }
 
 export async function readRaw(bundle: Bundle, relative: string): Promise<string> {

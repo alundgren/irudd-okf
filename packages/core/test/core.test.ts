@@ -33,6 +33,26 @@ describe('OKF parsing and retrieval', () => {
     expect((await run(f.store.index('repo', 'nested'))).path).toBe('nested/index.md');
     expect((await run(f.store.index('repo', 'absent'))).body).toContain('# Knowledge');
   });
+  it('projects cyclic YAML metadata to JSON without rejecting the concept or changing raw bytes', async () => {
+    const f = await fixture(); const raw = '---\ntype: Future Type\nproducer: &self { child: *self } # preserve alias\n---\nReadable body\n';
+    await f.write('cyclic.md', raw);
+    const concept = await run(f.store.read('repo', 'cyclic.md'));
+    expect(concept.malformed).toBe(false); expect(concept.metadata.producer).toEqual({ child: null });
+    expect(concept.diagnostics).toContainEqual(expect.objectContaining({ code: 'METADATA_PROJECTION', level: 'warning' }));
+    expect(JSON.parse(JSON.stringify(concept)).raw).toBe(raw);
+    expect((await run(f.store.validate())).errors).toBe(0);
+    expect((await run(f.store.validate({ lint: true }))).warnings).toBe(1);
+    await run(f.store.save({ bundle: 'repo', path: 'cyclic.md', raw: raw.replace('Readable body', 'Changed body'), expectedHash: concept.hash }));
+    expect((await run(f.store.read('repo', 'cyclic.md'))).raw).toContain('producer: &self { child: *self } # preserve alias');
+  });
+  it('encodes synthetic index destinations and creates an authored index from the empty hash', async () => {
+    const f = await fixture(); await f.write('a#fragment.md', document('Hash filename')); await f.write('nested/a?query.md', document('Query filename'));
+    const index = await run(f.store.index('repo'));
+    expect(index.hash).toBe(''); expect(index.raw).toContain('(a%23fragment.md)'); expect(index.raw).toContain('(nested/a%3Fquery.md)');
+    expect(index.links.map(link => link.target)).toEqual(['a#fragment.md', 'nested/a?query.md']);
+    const saved = await run(f.store.save({ bundle: 'repo', path: index.path, raw: index.raw, expectedHash: index.hash || null }));
+    expect(saved.hash).not.toBe(''); expect((await run(f.store.index('repo'))).hash).toBe(saved.hash);
+  });
   it('reads malformed documents raw and separates conformance from lint', async () => {
     const f = await fixture();
     await f.write('bad.md', '---\ntype: [broken\n---\nReadable raw'); await f.write('plain.md', 'No metadata');
@@ -122,6 +142,49 @@ describe('scope and safe mutations', () => {
     const from = await run(f.store.read('repo', 'from.md')); expect(from.raw).toContain('[inline](nested/new.md#part "title")'); expect(from.raw).toContain('[a]: nested/new.md "ref title"'); expect(from.raw).toContain('[b]:\n  nested/new.md "multiline title"');
     expect(from.raw).toContain('producer: "[metadata](old.md)"'); expect(from.raw).toContain('Plain old.md'); expect(from.raw).toContain('[code](old.md)');
     expect((await run(f.store.read('repo', 'nested/new.md'))).raw).toContain('[other](../other.md)');
+  });
+  it('updates accepted Markdown links while preserving incomplete link syntax', async () => {
+    const f = await fixture(); await f.write('old.md', document('Old'));
+    const body = '[valid](old.md "title")\n[plain](old.md "unterminated)\n[second](old.md#section)\n[unfinished](old.md';
+    await f.write('from.md', document('From', body));
+    expect((await run(f.store.read('repo', 'from.md'))).links).toHaveLength(2);
+    const source = await run(f.store.read('repo', 'old.md'));
+    await run(f.store.rename({ bundle: 'repo', path: 'old.md', newPath: 'new.md', expectedHash: source.hash, updateLinks: true }));
+    const updated = await run(f.store.read('repo', 'from.md'));
+    expect(updated.body).toBe('[valid](new.md "title")\n[plain](old.md "unterminated)\n[second](new.md#section)\n[unfinished](old.md');
+    expect(updated.links.every(link => link.target === 'new.md')).toBe(true);
+  });
+  it('cleans partial staged writes and allows a rename retry', async () => {
+    const f = await fixture(); await f.write('old.md', document('Old')); const source = await run(f.store.read('repo', 'old.md'));
+    const open = fs.open; let injectFailure = true;
+    vi.spyOn(fs, 'open').mockImplementation(async (file, flags, mode) => {
+      const handle = await open(file, flags, mode);
+      if (injectFailure && String(file).startsWith(path.join(f.bundle, '.okf-')) && String(file).endsWith('.tmp')) {
+        injectFailure = false; const write = handle.writeFile.bind(handle);
+        vi.spyOn(handle, 'writeFile').mockImplementationOnce(async data => {
+          await write(String(data).slice(0, 5));
+          throw Object.assign(new Error('Injected partial write failure'), { code: 'ENOSPC' });
+        });
+      }
+      return handle;
+    });
+    await expect(run(f.store.rename({ bundle: 'repo', path: 'old.md', newPath: 'new.md', expectedHash: source.hash }))).rejects.toMatchObject({ code: 'IO_ERROR' });
+    expect(await fs.readFile(path.join(f.bundle, 'old.md'), 'utf8')).toBe(source.raw);
+    await expect(fs.stat(path.join(f.bundle, 'new.md'))).rejects.toMatchObject({ code: 'ENOENT' });
+    expect((await fs.readdir(f.bundle)).some(file => file.endsWith('.tmp'))).toBe(false);
+    await run(f.store.rename({ bundle: 'repo', path: 'old.md', newPath: 'new.md', expectedHash: source.hash }));
+    expect(await fs.readFile(path.join(f.bundle, 'new.md'), 'utf8')).toBe(source.raw);
+  });
+  it('preserves an external destination created during exclusive rename publication', async () => {
+    const f = await fixture(); await f.write('old.md', document('Old')); const source = await run(f.store.read('repo', 'old.md'));
+    const link = fs.link; const destination = path.join(f.bundle, 'new.md'); const external = document('External writer');
+    vi.spyOn(fs, 'link').mockImplementation(async (existing, target) => {
+      if (String(target) === destination) await fs.writeFile(destination, external, { flag: 'wx' });
+      return link(existing, target);
+    });
+    await expect(run(f.store.rename({ bundle: 'repo', path: 'old.md', newPath: 'new.md', expectedHash: source.hash }))).rejects.toMatchObject({ code: 'CONFLICT' });
+    expect(await fs.readFile(destination, 'utf8')).toBe(external); expect(await fs.readFile(path.join(f.bundle, 'old.md'), 'utf8')).toBe(source.raw);
+    expect((await fs.readdir(f.bundle)).some(file => file.endsWith('.tmp'))).toBe(false);
   });
   it('rolls a failed rename back and preserves conflicting external changes', async () => {
     const f = await fixture(); await f.write('old.md', document('Old')); await f.write('from.md', document('From', '[old](old.md)'));
