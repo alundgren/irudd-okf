@@ -1,0 +1,10 @@
+I’ll check the repository’s UX guidance for submission states and errors. I’m also applying the ux-design and unslop skills for the review.
+
+The described interaction violates this repository’s checkout submission policy. Change it to:
+
+- Keep the submit button mounted while waiting.
+- Disable duplicate submission.
+- Set `aria-busy="true"` on the form while submission is pending, then clear it.
+- Announce completion or failure through the existing live region. A newly inserted plain error paragraph alone does not satisfy this requirement.
+
+These requirements apply specifically to `packages/checkout`: [Checkout submission accessibility](/tmp/okf-agent-run-Cb8MYb/repository/.okf/ux/2ab480a460da.md:12). The repository routes submission interaction reviews to UX guidance: [AGENTS.md](/tmp/okf-agent-run-Cb8MYb/repository/AGENTS.md:3), [UX index](/tmp/okf-agent-run-Cb8MYb/repository/.okf/ux/index.md:3).

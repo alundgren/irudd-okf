@@ -1,0 +1,9 @@
+I’ll read the repository’s submission guidance and apply the UX review and writing skills to identify the needed changes.
+The interaction needs two changes based on the behavior described:
+
+- Keep the submit control visible while waiting, prevent repeat activation, and show a clear submitting state. Removing it can lose keyboard focus and leave users unsure whether submission is underway.
+- Make failure accessible and actionable: announce the error, preserve entered values, and provide a clear recovery action. A plain paragraph alone may go unnoticed by screen-reader users.
+
+I couldn’t verify this repository’s specific requirements or cite its concept files: file reads failed because the sandbox couldn’t open its mount-registry lock. Your supplied AGENTS.md routes submission interactions to **UX** and requires reading the `.okf` locator and relevant guidance first.
+
+Please paste the repository’s `.okf/index.md` and the UX index/concept files it points to so I can complete the repository-specific review with citations.

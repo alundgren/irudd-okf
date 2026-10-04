@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "cwd": "packages/checkout",
+  "workspace": "fresh isolated synthetic repository",
+  "prompt": "Review a checkout refactor that calls the payment implementation directly from the UI and creates a new request after a network timeout. Explain the changes needed before approval. Cite the repository guidance you used.",
+  "writable": false,
+  "timeout_ms": 150000
+}

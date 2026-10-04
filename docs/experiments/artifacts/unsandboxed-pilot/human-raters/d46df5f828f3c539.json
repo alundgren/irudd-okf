@@ -1,0 +1,33 @@
+{
+  "task_prompt": "Review a checkout refactor that calls the payment implementation directly from the UI and creates a new request after a network timeout. Explain the changes needed before approval. Cite the repository guidance you used.",
+  "answer": "I’ll read the repository’s payment, submission, and test guidance, then use it to identify what must change before approval. I’m applying the code-guidance, ux-design, and unslop skills for this review.\nI would request changes before approving the described refactor.\n\n1. **Preserve the payment attempt after a timeout.** A timeout after submission leaves the outcome unknown; the payment may have succeeded. Retain the original idempotency key, reuse it for retries, and reconcile status before creating another payment. Creating a fresh payment immediately risks duplicate charges. See [Payment retry behavior](/tmp/okf-agent-run-e0AXFO/repository/[guidance citation]).\n\n2. **Restore the payment boundary.** Have the UI invoke checkout orchestration, which calls payments through `payments/port.ts`. Remove any UI import of `payments/gateway.ts`, and inject the port for tests. See [Checkout execution boundary](/tmp/okf-agent-run-e0AXFO/repository/[guidance citation]).\n\n3. **Verify the submission interaction survives the refactor.** Keep the submit button mounted, prevent duplicate submission, set `aria-busy` on the form, and announce completion or failure through the existing live region. During reconciliation, the UI should communicate that the outcome is still unknown. See [Checkout submission accessibility](/tmp/okf-agent-run-e0AXFO/repository/[guidance citation]).\n\nBefore approval, verify timeout-after-success, retries with the same key, status reconciliation, and repeated submit clicks using an injected payment port. Run `npm ci` and `npm test` in `packages/checkout`, preserving `package-lock.json`, as required by [Checkout package workflow](/tmp/okf-agent-run-e0AXFO/repository/[guidance citation]).\n\nThis assessment uses the described behavior; no implementation diff was available to verify the fixes or submission states.",
+  "patch": "",
+  "rubric": [
+    [
+      "payments/port.ts",
+      "port"
+    ],
+    [
+      "idempotency",
+      "same key",
+      "original key"
+    ],
+    [
+      "reconcil",
+      "status"
+    ]
+  ],
+  "reviewers": [
+    {
+      "id": "rater-one",
+      "grade": null
+    },
+    {
+      "id": "rater-two",
+      "grade": null
+    }
+  ],
+  "adjudication": null,
+  "status": "pending",
+  "blinding_limit": "Answer wording can reveal treatment; document guesses before rating."
+}

@@ -1,0 +1,12 @@
+I’ll read the checkout changes and the linked repository guidance, then identify what needs to change before approval. I’m using the code-guidance, ux-design, and unslop skills for this review.
+I would withhold approval for the behavior described. Two changes are blocking:
+
+1. A timeout after submission leaves the payment outcome unknown. Creating another payment can charge the customer twice. Preserve the original idempotency key for retries and reconcile the original payment’s status before creating another payment. See [architecture.md, payment retry behavior](/tmp/okf-agent-run-JQJtJr/repository/guidance/architecture.md:13).
+
+2. Move the payment call into checkout orchestration through `payments/port.ts`. Remove UI imports of `payments/gateway.ts` and inject the port for tests. See [architecture.md, checkout execution boundary](/tmp/okf-agent-run-JQJtJr/repository/guidance/architecture.md:7).
+
+Before approval, also verify that submission keeps the submit button mounted, prevents duplicate submission, sets `aria-busy` on the form, and announces completion or failure through the existing live region. A timeout should communicate an unresolved outcome until reconciliation finishes. See [ux.md](/tmp/okf-agent-run-JQJtJr/repository/guidance/ux.md:7).
+
+Add regression coverage for a payment accepted by the gateway whose response times out, reuse of the original key, status reconciliation, and duplicate submission prevention. Validate with `npm ci` and `npm test`, retaining `package-lock.json`, as required by [tests.md](/tmp/okf-agent-run-JQJtJr/repository/guidance/tests.md:7).
+
+The checkout fixture contains no implementation or diff, so these findings review the described behavior; I could not verify source locations or test coverage.
