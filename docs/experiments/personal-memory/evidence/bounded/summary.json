@@ -1,0 +1,142 @@
+[
+  {
+    "method": "flat",
+    "count": 100,
+    "scheduled": 12,
+    "attempted": 12,
+    "completed": 12,
+    "correct": 12,
+    "median_seconds": 36.39091729700001,
+    "median_total_tokens": 66866.5,
+    "median_success_seconds": 36.39091729700001,
+    "median_success_tokens": 66866.5,
+    "failures": [],
+    "task_results": [
+      {
+        "id": "usage",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "draft",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "exports",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "pagination",
+        "attempted": 3,
+        "correct": 3
+      }
+    ]
+  },
+  {
+    "method": "flat",
+    "count": 5000,
+    "scheduled": 12,
+    "attempted": 12,
+    "completed": 12,
+    "correct": 10,
+    "median_seconds": 43.171485664500054,
+    "median_total_tokens": 73263,
+    "median_success_seconds": 40.01510970000009,
+    "median_success_tokens": 73003,
+    "failures": [],
+    "task_results": [
+      {
+        "id": "usage",
+        "attempted": 3,
+        "correct": 1
+      },
+      {
+        "id": "draft",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "exports",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "pagination",
+        "attempted": 3,
+        "correct": 3
+      }
+    ]
+  },
+  {
+    "method": "global",
+    "count": 5000,
+    "scheduled": 12,
+    "attempted": 12,
+    "completed": 12,
+    "correct": 12,
+    "median_seconds": 54.374050155000006,
+    "median_total_tokens": 65576.5,
+    "median_success_seconds": 54.374050155000006,
+    "median_success_tokens": 65576.5,
+    "failures": [],
+    "task_results": [
+      {
+        "id": "usage",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "draft",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "exports",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "pagination",
+        "attempted": 3,
+        "correct": 3
+      }
+    ]
+  },
+  {
+    "method": "global",
+    "count": 100,
+    "scheduled": 12,
+    "attempted": 12,
+    "completed": 12,
+    "correct": 12,
+    "median_seconds": 48.54401940149997,
+    "median_total_tokens": 61309,
+    "median_success_seconds": 48.54401940149997,
+    "median_success_tokens": 61309,
+    "failures": [],
+    "task_results": [
+      {
+        "id": "usage",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "draft",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "exports",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "pagination",
+        "attempted": 3,
+        "correct": 3
+      }
+    ]
+  }
+]

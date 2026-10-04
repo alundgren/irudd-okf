@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 const executable = resolve(process.argv[2] ?? 'build/irudd-okf');
 const cwd = await realpath(await mkdtemp(resolve(tmpdir(), 'okf-native-')));
-const environment = { ...process.env, PATH: '/nonexistent', XDG_CONFIG_HOME: resolve(cwd, 'config'), XDG_STATE_HOME: resolve(cwd, 'state') };
+const environment = { ...process.env, PATH: '/nonexistent', XDG_CONFIG_HOME: resolve(cwd, 'config'), XDG_STATE_HOME: resolve(cwd, 'state'), CODEX_HOME: resolve(cwd, 'codex'), CLAUDE_CONFIG_DIR: resolve(cwd, 'claude') };
 const run = (...args) => JSON.parse(execFileSync(executable, args, { cwd, encoding: 'utf8', env: environment }));
 let server;
 try {
@@ -25,6 +25,17 @@ try {
   assert.equal(run('context').bundles.length, 1);
   assert.equal(run('search', 'native').results[0].path, 'test.md');
   assert.equal(run('validate').errors, 0);
+  run('init', resolve(cwd, 'personal'));
+  run('bundle', 'add', 'personal', resolve(cwd, 'personal'), '--activate');
+  const preview = run('instructions', 'install', 'codex', 'personal', '--dry-run');
+  assert.equal(preview.changed, true); assert.equal(preview.dryRun, true);
+  for (const provider of ['codex', 'claude']) {
+    assert.equal(run('instructions', 'install', provider, 'personal').changed, true);
+    assert.equal(run('instructions', 'install', provider, 'personal').changed, false);
+    assert.equal(run('instructions', 'status', provider).installed, true);
+    assert.match(await readFile(resolve(cwd, provider, provider === 'codex' ? 'AGENTS.md' : 'CLAUDE.md'), 'utf8'), /root and relevant topic indexes/);
+    assert.equal(run('instructions', 'remove', provider).installed, false);
+  }
   run('skill', 'install', resolve(cwd, 'skills'));
   assert.match(await readFile(resolve(cwd, 'skills/okf/SKILL.md'), 'utf8'), /name: okf/);
   const port = 20000 + Math.floor(Math.random() * 30000);
@@ -40,7 +51,7 @@ try {
   const result = await fetch(`${origin}/api/search?q=native`, { headers: { 'X-OKF-Session': capability } });
   assert.equal((await result.json()).results[0].path, 'test.md');
   assert.equal((await fetch(`${origin}/api/context`)).status, 403);
-  console.log(JSON.stringify({ version: 1, platform: process.platform, arch: process.arch, checks: ['standalone-without-node', 'help', 'invalid-arguments', 'files', 'search', 'validation', 'embedded-skill', 'embedded-viewer', 'session-authorization'], passed: true }));
+  console.log(JSON.stringify({ version: 1, platform: process.platform, arch: process.arch, checks: ['standalone-without-node', 'help', 'invalid-arguments', 'files', 'search', 'validation', 'owned-provider-instructions', 'embedded-skill', 'embedded-viewer', 'session-authorization'], passed: true }));
 } finally {
   if (server) { server.kill('SIGTERM'); await new Promise(done => { server.once('exit', done); setTimeout(done, 1000); }); }
   await rm(cwd, { recursive: true, force: true });

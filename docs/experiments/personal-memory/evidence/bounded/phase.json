@@ -1,0 +1,10 @@
+{
+  "kind": "bounded_instruction_followup",
+  "study_sha256": "d89664ea0cd8c30d1137d5197aa717fedfdee936b54c4cf926bd87765e0dd51c",
+  "wrapper_sha256": "70ebb3004f4434705a3e112d8919273fb366c90b7ced80e9fe38ddec20e1aa40",
+  "adapter_sha256": "3f6777d453d57602b34c50af78bcd76cf27ff4ba6846712e9c4f2ad8b0545fb5",
+  "cap_bytes": 32768,
+  "reference": "global locator selected before completion of the primary study",
+  "selection": "Largest complete-rule prefix in existing corpus order",
+  "interpretation": "Separate phase; do not pool with primary schedule. Core request inventory describes preparation. bounded-instructions.stdout.txt records actual runtime instructions."
+}

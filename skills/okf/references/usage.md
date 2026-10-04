@@ -37,6 +37,32 @@ fresh read and reconciliation; preserve the proposed text. Normal editors and
 Git also work. Run `validate` for format errors and `lint` for optional quality
 warnings. No command automatically commits, pushes or submits a PR.
 
+## Keeping memory useful
+
+Read the authored root index and the relevant topic index before adding memory.
+Their conventions decide where a note belongs and how old advice is replaced.
+Search existing concepts first. Extend or correct a relevant note rather than
+creating a second copy of the same rule.
+
+Keep the root index a small guide to topics and authoring conventions. Topic
+indexes link to their notes with a short explanation of when each applies.
+When creating a new topic, link its index from the root. Split a growing topic
+when its index becomes hard to scan. Prefer one specific lesson per concept,
+with a descriptive title, useful search terms, project applicability and enough
+context to act on it.
+
+Use relative Markdown links for directly related concepts and replacements.
+Explain why a related rule matters; a link to every remotely similar note makes
+retrieval harder. Preserve evidence and follow the bundle's convention for
+obsolete guidance. Check new and changed destinations after writing.
+
+`lint` warns about broken links and, when an authored root index exists, concepts
+not reachable through Markdown links from it. This catches disconnected notes;
+it cannot judge whether a lesson is correct, duplicated or filed under the best
+topic. File-only workflows should inspect the equivalent index and link changes.
+Review the concept and index edits together. Personal edits still require
+explicit operator authorization.
+
 Search narrowly with several terms from the task, then refine after seeing real
 paths and vocabulary. An architecture rule can have words that do not appear in
 the user's prompt; consult a directory index or related concept when lexical

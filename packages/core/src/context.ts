@@ -77,7 +77,34 @@ export function initializeBundle(root: string): Operation<{ root: string }> {
     const absolute = path.resolve(root);
     await ensureDirectory(absolute);
     const bundle = await mount('new', absolute, 'explicit');
-    await atomicCreate(path.join(bundle.root, 'index.md'), '---\nokf_version: "0.2"\n---\n\n# Knowledge\n').catch(error => { if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new OkfError('ALREADY_EXISTS', 'Initialization never replaces an existing index.', { root: absolute }); throw error; });
+    await atomicCreate(path.join(bundle.root, 'index.md'), `---
+okf_version: "0.2"
+---
+
+# Knowledge
+
+Read this guide, then search task terms and retrieve a few relevant notes.
+Check project applicability and follow links from obsolete advice to its replacement.
+
+## Adding or updating memory
+
+Read this index and the relevant topic index before writing. Search for duplicates;
+update a note that already covers the lesson. Follow existing topic conventions.
+Keep one actionable lesson per Markdown concept with a nonempty frontmatter type,
+a descriptive title, useful search terms and enough context to apply it.
+
+Place notes in topic folders. Topic indexes link to their notes with short
+descriptions. Keep this root index small by linking topic indexes, rather than
+listing every note. Add a root link when creating a new topic. Use relative
+Markdown links only for directly related notes and replacements. Preserve history
+when guidance changes. Check links and review concept and index edits together.
+Run scoped validation and lint when available. Personal edits require explicit
+operator authorization.
+
+## Topics
+
+Add links to topic indexes here as knowledge grows.
+`).catch(error => { if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new OkfError('ALREADY_EXISTS', 'Initialization never replaces an existing index.', { root: absolute }); throw error; });
     return { root: bundle.root };
   });
 }

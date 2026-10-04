@@ -17,6 +17,7 @@ const required: Record<string, string[]> = {
   'bundle add': ['name', 'root'], 'bundle remove': ['name'], index: ['bundle'], search: ['query'], read: ['bundle', 'path'],
   write: ['bundle', 'path', 'file', 'expected'], delete: ['bundle', 'path', 'expected'], rename: ['bundle', 'path', 'newPath', 'expected'],
   'git status': ['bundle'], 'git preview': ['bundle', 'paths'], 'git pr': ['token', 'title'], 'skill install': ['directory'], 'cli search': ['query'], 'cli schema': ['command'],
+  'instructions install': ['provider', 'bundle'], 'instructions status': ['provider'], 'instructions remove': ['provider'],
 };
 export const commands: CommandDescription[] = [
   entry('context', 'Show selected bundles and current repository scope.', 'context [--config PATH] [--bundle NAME=ROOT]', {}, 'MemoryContext'),
@@ -38,6 +39,9 @@ export const commands: CommandDescription[] = [
   entry('git preview', 'Prepare selected memory files in an isolated worktree and review the resulting diff.', 'git preview BUNDLE --paths PATH[,PATH] [--base REF]', { bundle, paths: { ...text, description: 'Comma-separated bundle-relative Markdown paths.' }, base: text }, 'GitPreview', true),
   entry('git pr', 'Publish a previously reviewed memory diff using git and authenticated gh.', 'git pr TOKEN --title TITLE [--body BODY]', { token: text, title: text, body: text }, 'PullRequestResult', true),
   entry('skill install', 'Install the small agent skill into an explicitly selected directory.', 'skill install DIRECTORY', { directory: text }, '{directory,files}', true),
+  entry('instructions install', 'Install or update the owned personal-memory section in one provider\'s global instructions.', 'instructions install PROVIDER BUNDLE [--dry-run]', { provider: { type: 'string', enum: ['codex', 'claude'] }, bundle, dryRun: { type: 'boolean', default: false } }, 'InstructionResult', true),
+  entry('instructions status', 'Inspect the owned personal-memory section and whether Codex overrides hide it.', 'instructions status PROVIDER', { provider: { type: 'string', enum: ['codex', 'claude'] } }, 'InstructionStatus'),
+  entry('instructions remove', 'Remove only the owned personal-memory section, preserving other global instructions.', 'instructions remove PROVIDER [--dry-run]', { provider: { type: 'string', enum: ['codex', 'claude'] }, dryRun: { type: 'boolean', default: false } }, 'InstructionResult', true),
   entry('cli search', 'Discover relevant commands before loading their full schemas.', 'cli search QUERY', { query: text }, '{version,results:{command,description,usage,mutates}[]}'),
   entry('cli schema', 'Inspect one command and its inputs, output and mutation behavior.', 'cli schema COMMAND', { command: text }, 'CommandDescription'),
   entry('doctor', 'Check runtime, active files and Git/gh availability.', 'doctor', {}, 'DoctorResult'),

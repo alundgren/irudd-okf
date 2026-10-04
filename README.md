@@ -148,6 +148,61 @@ registrations are separate from the OKF format, and files are never physically
 merged. Personal writes through the CLI require `--authorize-personal`; a
 person's deliberate wiki edit supplies that authorization.
 
+## Machine-wide agent instructions
+
+Install a short owned section for each provider you want to use with an active
+personal bundle. Preview the instruction text and destination before installing:
+
+```sh
+irudd-okf instructions install codex personal --dry-run
+irudd-okf instructions install codex personal
+irudd-okf instructions install claude personal
+irudd-okf instructions status codex
+irudd-okf instructions remove claude
+```
+
+Replace `personal` with the active alias shown by `context`. Installation and
+updates replace only the section between the `irudd-okf personal-memory` markers.
+Repeated installation is a no-op. Removal leaves other instructions intact.
+Existing file permissions are preserved; changed files have a private recovery
+copy. `--dry-run` also works for removal and writes nothing. No memory content
+is copied into the instruction file, and no skill installation is required.
+
+Codex uses `~/.codex/AGENTS.md`, respecting `CODEX_HOME`. Claude uses
+`~/.claude/CLAUDE.md`, respecting `CLAUDE_CONFIG_DIR`. The CLI reports a nonempty
+Codex `AGENTS.override.md` as shadowing the shared file and refuses installation
+until the override is reconciled. Incomplete or duplicate markers, symbolic
+links and non-UTF-8 instruction files are left unchanged. Start a new provider
+session to load the updated instructions. See the official
+[Codex instruction discovery](https://learn.chatgpt.com/docs/agent-configuration/agents-md)
+and [Claude memory documentation](https://code.claude.com/docs/en/memory).
+
+Scope should call these commands on each machine after registering its synced
+`personal` bundle, with separate Codex and Claude toggles. Turning one toggle
+off should remove only that provider's section. CLI JSON gives Scope the target,
+installed state, shadowing, preview text and whether anything changed. Scope's
+toggle integration is a later change; this CLI does not enable it automatically.
+
+## Organizing new memories
+
+The owned instruction and OKF skill tell agents to read the root and relevant
+topic indexes before writing, search for duplicates, update an existing concept
+when appropriate, and review note and index edits together. The root index
+links topics; topic indexes link notes. Relative links connect related guidance
+and replacements. Existing authoring conventions remain in charge. `init`
+creates a small guide for new bundles and never replaces an existing index.
+
+Run `irudd-okf lint --scope personal` after an authorized memory edit. In addition
+to broken links, it reports `UNINDEXED_CONCEPT` for notes with no Markdown-link
+route from an authored root index. These are optional quality warnings, not
+format errors; bundles without a root index remain valid. Lint does not prove
+that a note is useful, unique or in the best topic. Ordinary file edits remain
+supported and personal writes still require explicit authorization.
+
+The retrieval experiment tested the earlier skill and wording. The added
+authoring checklist and navigation lint have engineering checks, not a new
+agent-effectiveness result.
+
 ## Review memory edits as a PR
 
 When a bundle is in Git, the wiki shows changed memory paths. Select files,

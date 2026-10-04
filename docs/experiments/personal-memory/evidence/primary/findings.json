@@ -1,0 +1,35 @@
+{
+  "primary_results_sha256": "fa9f7bd5cfaaf35aad1146020f9877593e7f8e26e6e115e6d577cd51d57f3875",
+  "bounded_results_sha256": "45018a789940082447613d890382372beb53d8d6bb99b45f988d7a481c60dfac",
+  "summary": "On the usage task with 5,000 concepts, file locators, an explicit search recipe, suggested paths and grouped skills each passed 3/3 trials. The installed OKF skill alone passed 1/3; no personal memory passed 0/3. Suggested paths used a median 46,969 total tokens and 56.4 seconds, compared with 92,777 tokens and 70.1 seconds for the bare global locator. In the separate imposed 32 KiB phase, capped instructions passed 1/3 and the locator passed 3/3.",
+  "recommendation": "Start the next integration trial with a short global bundle locator, a focused rg recipe and a small root index explaining scope and replacement links. Suggested candidate paths are a promising optional caller integration. Keep ordinary file retrieval available. A native skill alone was unreliable in this sample; a symlink locator worked with file tools but is unsupported by the current OKF engine.",
+  "limit": "These are three placements of one authored retrieval-sensitive task, with three additional controls. Results are descriptive, with placement and run order confounded. Passing means passing frozen behavior checks; human ratings are unavailable and explicit null count fields remain underspecified. Total tokens include recurring cached input. Timing is from concurrent sessions. The 32 KiB prefix budget was imposed by this experiment, not by Codex.",
+  "actionable": {
+    "intro": "Keep your memories in a folder of notes. Give the agent a short instruction to find the few notes it needs for its current job.",
+    "steps": [
+      {
+        "title": "Use the folder Scope syncs.",
+        "body": "Store the rules as OKF Markdown notes. Use the actual local folder path on each machine."
+      },
+      {
+        "title": "Tell Codex where to look.",
+        "body": "Add this to the machine's global AGENTS.md. Replace BUNDLE_PATH with that folder's path."
+      },
+      {
+        "title": "Put a small guide at the folder entrance.",
+        "body": "Use index.md to explain how to search the notes, which project each rule applies to, and how to follow a link from an old rule to its replacement."
+      }
+    ],
+    "instruction": "Personal development memories live in BUNDLE_PATH.\nBefore editing, read BUNDLE_PATH/index.md.\nUse rg -n -i with words from the task to search that folder.\nRead a few relevant notes; check their project and replacement links.\nRepository instructions override conflicting personal defaults.\nTreat personal notes as read-only unless asked to update them.",
+    "why": "Why start here? The folder locator with a search recipe solved all three large-memory usage trials. Installing only the skill solved one of three. The skill can stay available as an extra tool.",
+    "next": "Later, Scope could supply a few likely note paths when a task starts. That approach used about half the tokens of a bare folder locator in this test. Try the simple setup first.",
+    "scope": "Start with Codex on one machine and check it on real development work. This was one artificial memory-dependent task repeated three times. Claude needs a separate test before assuming the same result.",
+    "setup": {
+      "description": "The CLI now owns the instruction section for each provider. Preview it, then enable the provider you want. Replace personal if your active bundle has another name.",
+      "commands": "irudd-okf instructions install codex personal --dry-run\nirudd-okf instructions install codex personal\n\nirudd-okf instructions install claude personal --dry-run\nirudd-okf instructions install claude personal\n\nirudd-okf instructions status codex\nirudd-okf instructions remove claude",
+      "availability": "Implemented in this checkout. Use build/irudd-okf here; other machines need an updated CLI. The Scope integration will use separate Codex and Claude toggles on each machine. Those toggles are a later change.",
+      "authoring": "The section and skill tell authorized authors to read root and topic indexes, search duplicates, update the relevant index entry and link related notes or replacements. New bundles start with that guide. Existing indexes stay intact. irudd-okf lint --scope personal now warns about notes disconnected from the root index and broken links.",
+      "limit": "These additions passed functional checks. The memory-writing checklist has no new agent-effectiveness result; review the note and index edits together."
+    }
+  }
+}

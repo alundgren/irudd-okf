@@ -21,3 +21,6 @@ On macOS, normalize only verified, root-owned `/var`, `/tmp` and `/etc`
 aliases to their standard `/private` destinations before checking directory
 parents. Continue rejecting user-created symlinks. Native platform CI caught
 this difference after Linux checks passed.
+
+For browser draft source identity and review after changed backlinks, see
+[viewer draft guidance](viewer-drafts.md).
