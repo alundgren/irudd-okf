@@ -20,22 +20,27 @@ Bundles stay separate. Each result identifies its bundle and path. There is
 no implicit search of sibling repositories, embeddings service or encoded
 rule precedence. Repository guidance decides how agents use its memories.
 
-## Try it
+## Install
 
-Linux with glibc and macOS are supported on x64 and arm64. Install Git and
-[Vite+](https://viteplus.dev/guide/) first. Use a separate clone on `main`
-for the installation, so upgrades can update it without touching development
-work. Vite+ builds the executable locally with its Node runtime, wiki, graph
-and agent skill included.
-Run `irudd-okf licenses` to read the included runtime and dependency notices.
+Linux with glibc and macOS are supported on x64 and arm64.
 
 ```sh
-git clone --branch main --single-branch https://github.com/alundgren/irudd-okf.git ~/.local/share/irudd-okf
-cd ~/.local/share/irudd-okf
-vp install --frozen-lockfile
-vp run install:cli
-export PATH="$HOME/.local/bin:$PATH"
-cd /path/to/your/project
+curl -fsSL https://raw.githubusercontent.com/alundgren/irudd-okf/main/install.sh | bash
+```
+
+The installer keeps its own clone in `~/.local/share/irudd-okf/source`, installs
+Vite+ if needed, and builds the CLI locally. It installs into `~/.local/bin`
+and adds that directory to your bash or zsh login profile. Git and curl are
+required. Open a new terminal after installing.
+
+The executable includes its Node runtime, wiki, graph, and agent skill.
+Run `irudd-okf licenses` to read the included runtime and dependency notices.
+
+## Try it
+
+From your project's directory:
+
+```sh
 irudd-okf init .okf
 irudd-okf context
 irudd-okf search "test artifacts" --scope repo --limit 5
@@ -47,10 +52,9 @@ Open the printed `/wiki` or `/graph` address. The server binds to
 with the file currently on disk. On a conflict, the draft remains available
 for comparison and copying. Malformed documents remain accessible as raw text.
 
-`vp run install:cli` builds and installs into `~/.local/bin`. Set
-`OKF_INSTALL_DIR` or pass a directory to that command to choose another location.
-Keep `irudd-okf.install.json` beside the executable and keep the installation
-clone. The record identifies the source clone and installed commit.
+Set `OKF_INSTALL_ROOT` to change where the installer keeps its clone, or
+`OKF_INSTALL_DIR` to change the executable's location. The installer records
+the clone, commit, and Vite+ path beside the executable for future upgrades.
 
 Run `irudd-okf upgrade` from any directory to fetch `origin/main` in that clone.
 When `main` has changed, it fast-forwards the clone, installs dependencies with
@@ -71,7 +75,7 @@ Scope can run `--check` daily, then run `upgrade` when `updateAvailable` is true
 If an older CLI rejects `--check`, Scope should show
 `irudd-okf is too old for automatic upgrades`.
 
-Remove the executable, its installation record, and the separate clone to
+Remove the executable, its installation record, and the installation root to
 uninstall. Your bundles and configuration remain ordinary files.
 
 ## Files and agent discovery

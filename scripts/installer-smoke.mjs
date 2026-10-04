@@ -33,6 +33,7 @@ try {
   await mkdir(join(upstream, 'scripts'), { recursive: true });
   await mkdir(tools);
   await copyFile(resolve('scripts/install-cli.mjs'), join(upstream, 'scripts/install-cli.mjs'));
+  await copyFile(resolve('scripts/shell-path.mjs'), join(upstream, 'scripts/shell-path.mjs'));
   await writeFile(join(upstream, '.gitignore'), 'build/\n');
   git(directory, 'init', '--initial-branch=main', upstream);
   git(upstream, 'config', 'user.name', 'Installer smoke');

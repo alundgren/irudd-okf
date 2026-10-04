@@ -9,9 +9,10 @@ const readInstallation = (directory: string): Operation<SourceInstallation> => E
   try: async () => {
     const value: SourceInstallation = JSON.parse(await readFile(join(directory, 'irudd-okf.install.json'), 'utf8'));
     if (value.version !== 1 || typeof value.source !== 'string' || !isAbsolute(value.source) || typeof value.revision !== 'string' || !/^[a-f0-9]{40,64}$/.test(value.revision) || typeof value.productVersion !== 'string') throw new Error('Invalid installation record.');
+    if (value.vp !== undefined && (typeof value.vp !== 'string' || !isAbsolute(value.vp))) throw new Error('Invalid Vite+ path.');
     return value;
   },
-  catch: error => new OkfError('INSTALLATION_NOT_FOUND', 'Install from a separate clone with vp run install:cli before using upgrade. Keep irudd-okf.install.json beside the executable.', { cause: String(error) }),
+  catch: error => new OkfError('INSTALLATION_NOT_FOUND', "Run the installer again to restore this CLI's installation record before using upgrade.", { cause: String(error) }),
 });
 const installed = (executable: string) => Effect.gen(function* () {
   const directory = dirname(yield* Effect.tryPromise({
@@ -61,8 +62,9 @@ export const upgrade = (executable = process.execPath): Operation<UpgradeResult>
   yield* git('merge-base', '--is-ancestor', head, revision).pipe(Effect.mapError(() => new OkfError('UPGRADE_SOURCE_CHANGED', 'Local main contains commits absent from origin/main. Use a clean installation clone.', { source: installation.source })));
   if (head !== revision) yield* git('-c', 'core.hooksPath=/dev/null', 'merge', '--ff-only', revision);
   if (installation.revision !== revision) {
-    yield* checkedProcess('vp', ['install', '--frozen-lockfile'], installation.source);
-    yield* checkedProcess('vp', ['run', '--no-cache', 'install:cli', directory], installation.source);
+    const vp = installation.vp ?? 'vp';
+    yield* checkedProcess(vp, ['install', '--frozen-lockfile'], installation.source);
+    yield* checkedProcess(vp, ['run', '--no-cache', 'install:cli', directory, ...(installation.vp ? [installation.vp] : [])], installation.source);
     const current = yield* readInstallation(directory);
     if (current.revision !== revision) return yield* Effect.fail(new OkfError('UPGRADE_INSTALL_FAILED', 'The installer did not install the expected commit.', { revision }));
     return { previous: installation.productVersion, current: current.productVersion, updated: true };

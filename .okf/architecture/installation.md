@@ -5,9 +5,16 @@ description: Build the CLI locally with Vite+ and update from main without relea
 tags: [cli, installation, upgrades, vite]
 ---
 
-Install from a clean, separate clone on main with `vp install --frozen-lockfile`
-and `vp run install:cli`. Keep the clone and the installation record beside
-the executable. Do not add GitHub release downloads or archive assembly.
+Offer one install command, `curl` the root `install.sh` into `bash`. The
+installer manages a separate clone on main, installs Vite+ when absent,
+builds the CLI locally, and configures its bash or zsh PATH. Users should not
+need to clone, change directories, install dependencies, build, or set PATH
+themselves. Do not add GitHub release downloads or archive assembly.
+
+The installed record identifies the source clone, commit, and Vite+ executable.
+Use the recorded Vite+ path during upgrades so callers such as Scope do not
+need a terminal's PATH. Preserve records from manual source installations
+that relied on Vite+ being on PATH.
 
 `irudd-okf upgrade --check` reports current and latest package versions plus
 `updateAvailable`, without changing the clone, its Git refs, or installed
