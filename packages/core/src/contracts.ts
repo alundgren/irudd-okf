@@ -1,6 +1,7 @@
 import type { Effect } from 'effect';
+import metadata from '../../../package.json' with { type: 'json' };
 
-export const VERSION = '0.1.0';
+export const VERSION = metadata.version;
 export type BundleKind = 'repository' | 'personal' | 'explicit';
 export interface Bundle { name: string; root: string; kind: BundleKind; writable: boolean }
 export interface MemoryContext { version: 1; cwd: string; gitRoot: string | null; bundles: Bundle[]; configPath: string }
@@ -39,6 +40,9 @@ export interface GitFile { path: string; status: string }
 export interface GitStatus { version: 1; available: boolean; root: string | null; branch: string | null; remote: string | null; files: GitFile[]; reason?: string }
 export interface GitPreview { version: 1; token: string; bundle: string; base: string; baseRef: string; repository: string; branch: string; paths: string[]; diff: string; expiresAt: string; warnings: string[] }
 export interface PullRequestResult { version: 1; url: string; branch: string; worktree: string; state: 'created' | 'existing' }
+export interface SourceInstallation { version: 1; source: string; revision: string; productVersion: string; vp?: string }
+export interface UpgradeCheckResult { current: string; latest: string; updateAvailable: boolean }
+export interface UpgradeResult { previous: string; current: string; updated: boolean }
 
 // HTTP wire types share file semantics with the CLI. All mutations require the
 // browser session capability, and Git publication additionally requires preview.

@@ -14,6 +14,7 @@
     "dev": "vp dev",
     "build:web": "vp build",
     "build": "node scripts/licenses.mjs && vp build && node scripts/inline-web.mjs && vp pack",
+    "install:cli": "vp run build && node scripts/install-cli.mjs",
     "test": "vp test run",
     "typecheck": "tsc --noEmit",
     "check": "npm run typecheck && npm test",

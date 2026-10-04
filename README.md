@@ -20,14 +20,27 @@ Bundles stay separate. Each result identifies its bundle and path. There is
 no implicit search of sibling repositories, embeddings service or encoded
 rule precedence. Repository guidance decides how agents use its memories.
 
-## Try it
+## Install
 
-Linux with glibc and macOS are supported on x64 and arm64. The executable
-contains its Node runtime, wiki, graph and agent skill.
-Run `irudd-okf licenses` to read the included runtime and dependency notices.
+Linux with glibc and macOS are supported on x64 and arm64.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/alundgren/irudd-okf/main/install.sh | bash
+```
+
+The installer keeps its own clone in `~/.local/share/irudd-okf/source`, installs
+Vite+ if needed, and builds the CLI locally. It installs into `~/.local/bin`
+and adds that directory to your bash or zsh login profile. Git and curl are
+required. Open a new terminal after installing.
+
+The executable includes its Node runtime, wiki, graph, and agent skill.
+Run `irudd-okf licenses` to read the included runtime and dependency notices.
+
+## Try it
+
+From your project's directory:
+
+```sh
 irudd-okf init .okf
 irudd-okf context
 irudd-okf search "test artifacts" --scope repo --limit 5
@@ -39,10 +52,31 @@ Open the printed `/wiki` or `/graph` address. The server binds to
 with the file currently on disk. On a conflict, the draft remains available
 for comparison and copying. Malformed documents remain accessible as raw text.
 
-Set `OKF_VERSION=v0.1.0` to choose a release or `OKF_INSTALL_DIR` to choose an
-installation directory. Running the installer again updates the executable
-with its release checksum checked. Remove that executable to uninstall;
-your bundles and configuration remain ordinary files.
+Set `OKF_INSTALL_ROOT` to change where the installer keeps its clone, or
+`OKF_INSTALL_DIR` to change the executable's location. The installer records
+the clone, commit, and Vite+ path beside the executable for future upgrades.
+
+Run `irudd-okf upgrade` from any directory to fetch `origin/main` in that clone.
+When `main` has changed, it fast-forwards the clone, installs dependencies with
+`vp`, rebuilds, and replaces the executable. It prints JSON such as
+`{"previous":"0.1.0","current":"0.2.0","updated":true}` and exits 0 on
+success or non-zero on failure. Otherwise it reports `updated: false`
+without rebuilding. Local edits, a different branch, or local commits absent
+from `origin/main` stop the upgrade. A dependency or build failure leaves the
+installed executable intact; run `upgrade` again to retry.
+
+`irudd-okf upgrade --check` exits 0 and prints JSON such as
+`{"current":"0.1.0","latest":"0.2.0","updateAvailable":true}`. It leaves the
+installation clone, Git refs, and installed files untouched. It reads upstream
+metadata in a temporary repository that it removes after checking. Both modes
+detect updates by commit, so a change on `main` is available even when the
+package version stays the same. Git or network failures exit non-zero.
+Scope can run `--check` daily, then run `upgrade` when `updateAvailable` is true.
+If an older CLI rejects `--check`, Scope should show
+`irudd-okf is too old for automatic upgrades`.
+
+Remove the executable, its installation record, and the installation root to
+uninstall. Your bundles and configuration remain ordinary files.
 
 ## Files and agent discovery
 
@@ -168,9 +202,3 @@ pilot can test instrumentation; it cannot establish that thousands of rules
 reliably improve agents. The confirmatory study requires audited equivalent
 corpora and independent human ratings. Missing context traces are reported
 as unavailable, rather than estimated from file sizes.
-
-For a release, download the four native artifacts from one successful CI run,
-then run `node scripts/assemble-release.mjs ARTIFACT_DIRECTORY RELEASE_DIRECTORY`.
-Assembly checks all four archive checksums and creates the installer's
-`SHA256SUMS`. Publish those four archives and that file in the GitHub release
-for the reviewed commit. Never combine builds from different revisions.

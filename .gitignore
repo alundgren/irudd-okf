@@ -5,6 +5,6 @@ web-dist/
 coverage/
 .playwright/
 *.local
+THIRD_PARTY_NOTICES.txt
 
-release/
 docs/validation/browser-*
