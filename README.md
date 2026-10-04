@@ -100,7 +100,7 @@ Teach agents where the bundle is with a short applicable `AGENTS.md` locator.
 For example: “Project rules and decisions live in `.okf/`. Consult the index
 and search task-relevant files before changing code. Add a small concept when
 asked to record a rule. Review memory edits with the code diff.” Adapt this
-example to your own repository; retrieval policy is an experiment.
+example to your own repository.
 
 ```sh
 irudd-okf cli search "find project rules"
@@ -199,9 +199,9 @@ format errors; bundles without a root index remain valid. Lint does not prove
 that a note is useful, unique or in the best topic. Ordinary file edits remain
 supported and personal writes still require explicit authorization.
 
-The retrieval experiment tested the earlier skill and wording. The added
-authoring checklist and navigation lint have engineering checks, not a new
-agent-effectiveness result.
+The authoring checklist and navigation lint help maintain files and links.
+They do not guarantee that an agent will follow every instruction or organize
+notes well.
 
 ## Review memory edits as a PR
 
@@ -230,7 +230,7 @@ worktree, then retry the same token. Missing ownership requires inspecting the
 claim age and ensuring no publication process remains; unknown owners are never
 automatically deleted.
 
-## Development and evidence
+## Development
 
 The product uses Effect 4.0, Foldkit 0.165 and Vite+ 1.0. Node 26.10 is the
 build runtime. Generic YAML and Markdown libraries handle syntax; own code
@@ -245,15 +245,12 @@ npm run okf -- context
 ```
 
 Native CI executes the built client on Linux and macOS, each on x64 and arm64.
-Browser validation exercises the served wiki and graph. See the
-[product plan](docs/planning/product-plan.md),
-[source research](docs/planning/okf-research.md), and
-[controlled experiment protocol](docs/planning/experiment-protocol.md).
-The original exploration handoff is retained in
-[docs/planning/original-handoff.md](docs/planning/original-handoff.md).
+Browser validation exercises the served wiki and graph. Run it with:
 
-Large-corpus timing and agent-task results are separate measurements. A small
-pilot can test instrumentation; it cannot establish that thousands of rules
-reliably improve agents. The confirmatory study requires audited equivalent
-corpora and independent human ratings. Missing context traces are reported
-as unavailable, rather than estimated from file sizes.
+```sh
+node scripts/browser-smoke.mjs
+```
+
+Browser smoke outputs use a temporary directory and are removed after the run.
+Set `OKF_BROWSER_ARTIFACTS` to an output directory outside the repository when
+you need to retain screenshots and results. CI retains these as workflow artifacts.

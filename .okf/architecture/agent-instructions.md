@@ -20,8 +20,8 @@ Preview and status must not create provider directories or touch memory files.
 The managed text directs authorized authors to read root and topic indexes,
 search duplicates and update the relevant index and links. The bundle's root
 index owns its authoring conventions. New-bundle initialization includes a
-guide; existing indexes are never replaced by setup. Retrieval effectiveness of
-new wording requires a fresh experiment rather than reusing earlier scores.
+guide; existing indexes are never replaced by setup. Agent adherence to new
+wording needs separate evaluation.
 
 Core lint can detect concepts disconnected from an authored root index through
 Markdown links. This is optional quality guidance, not an OKF requirement or a

@@ -14,4 +14,4 @@ an OKF-specific dependency or copied reference implementation is outside scope.
 Runtime bundle registration stays outside portable OKF directories.
 
 Do not infer rule precedence from a bundle alias or metadata field. Users write
-their own repository conventions and can test them through the experiment runner.
+their own repository conventions.

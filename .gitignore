@@ -6,5 +6,3 @@ coverage/
 .playwright/
 *.local
 THIRD_PARTY_NOTICES.txt
-
-docs/validation/browser-*

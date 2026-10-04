@@ -14,7 +14,7 @@ await writeFile(join(root, 'referrer.md'), '---\ntype: Rule\ntitle: Referrer\n--
 await writeFile(join(root, 'index.md'), '# Memory\n\n[Nested](nested/)\n\n[Source](source.md?view=1#part)\n');
 await writeFile(join(root, 'nested/index.md'), '# Nested navigation\n\n[Source](../source.md)\n');
 const executable = resolve(process.argv[2] ?? 'build/irudd-okf');
-const artifacts = resolve('docs/validation');
+const artifacts = process.env.OKF_BROWSER_ARTIFACTS ? resolve(process.env.OKF_BROWSER_ARTIFACTS) : join(directory, 'artifacts');
 await mkdir(artifacts, { recursive: true });
 const probe = createServer();
 probe.listen(0, '127.0.0.1'); await once(probe, 'listening');

@@ -46,8 +46,10 @@ jobs:
       - run: npm run build
       - run: OKF_BROWSER_TEST=1 npm test -- packages/web/test/viewer.test.ts
       - run: node scripts/browser-smoke.mjs
+        env:
+          OKF_BROWSER_ARTIFACTS: ${{ runner.temp }}/okf-browser-smoke
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: browser-evidence
-          path: docs/validation/browser-*
+          path: ${{ runner.temp }}/okf-browser-smoke/browser-*
