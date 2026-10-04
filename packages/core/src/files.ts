@@ -9,6 +9,30 @@ export const hash = (raw: string) => createHash('sha256').update(raw).digest('he
 export const operation = <A>(run: () => Promise<A>): Operation<A> => Effect.tryPromise({ try: run, catch: error => error instanceof OkfError ? error : new OkfError('IO_ERROR', error instanceof Error ? error.message : String(error)) });
 export const absent = (error: unknown) => (error as NodeJS.ErrnoException).code === 'ENOENT';
 export const within = (root: string, target: string) => target === root || target.startsWith(root + path.sep);
+export async function normalizeSystemPath(input: string, platform: NodeJS.Platform = process.platform): Promise<string> {
+  const absolute = path.resolve(input);
+  if (platform !== 'darwin') return absolute;
+  const name = absolute.split(path.sep)[1];
+  if (!['var', 'tmp', 'etc'].includes(name)) return absolute;
+  const alias = path.join(path.parse(absolute).root, name);
+  const information = await fs.lstat(alias);
+  if (!information.isSymbolicLink()) return absolute;
+  const parent = await fs.lstat('/private');
+  const target = `/private/${name}`;
+  const destination = path.resolve(path.dirname(alias), await fs.readlink(alias));
+  const targetInformation = await fs.lstat(target);
+  if (information.uid !== 0 || destination !== target || parent.uid !== 0 || !parent.isDirectory() || parent.isSymbolicLink() || (parent.mode & 0o022) !== 0 || targetInformation.uid !== 0 || !targetInformation.isDirectory() || targetInformation.isSymbolicLink()) {
+    throw new OkfError('UNSAFE_PATH', 'Only root-owned standard macOS directory aliases are allowed.', { path: input });
+  }
+  return target + absolute.slice(alias.length);
+}
+export async function canonicalDirectory(input: string): Promise<string> {
+  const normalized = await normalizeSystemPath(input);
+  const root = await fs.realpath(normalized);
+  const information = await fs.lstat(normalized);
+  if (root !== normalized || !information.isDirectory() || information.isSymbolicLink()) throw new OkfError('UNSAFE_PATH', 'Directories must not contain user-created symbolic links.', { path: input });
+  return root;
+}
 export function cleanPath(input: string): string {
   if (!input || input.includes('\0') || input.includes('\\') || path.isAbsolute(input) || input.split('/').includes('..')) throw new OkfError('UNSAFE_PATH', 'Use a relative path within the bundle.', { path: input });
   const normalized = path.posix.normalize(input);
@@ -17,8 +41,7 @@ export function cleanPath(input: string): string {
 }
 export async function guarded(bundle: Bundle, input: string, create = false): Promise<string> {
   const relative = cleanPath(input);
-  const root = await fs.realpath(bundle.root);
-  if (root !== path.resolve(bundle.root)) throw new OkfError('UNSAFE_PATH', 'Bundle roots must not be symbolic links.', { root: bundle.root });
+  const root = await canonicalDirectory(bundle.root);
   const parts = relative.split('/');
   let current = root;
   for (let i = 0; i < parts.length; i++) {
@@ -41,8 +64,7 @@ export async function guarded(bundle: Bundle, input: string, create = false): Pr
 }
 export async function scan(bundle: Bundle): Promise<Array<{ path: string; fingerprint: string }>> {
   const candidates: string[] = [];
-  const root = await fs.realpath(bundle.root);
-  if (root !== path.resolve(bundle.root)) throw new OkfError('UNSAFE_PATH', 'Bundle roots must not be symbolic links.');
+  const root = await canonicalDirectory(bundle.root);
   async function visit(directory: string, prefix: string) {
     if (prefix) await guarded(bundle, prefix.slice(0, -1));
     const entries = await fs.readdir(directory, { withFileTypes: true });
@@ -69,7 +91,7 @@ export async function scan(bundle: Bundle): Promise<Array<{ path: string; finger
   return result;
 }
 export async function withLock<A>(root: string, run: () => Promise<A>): Promise<A> {
-  const folder = path.join(root, '.irudd-okf');
+  const folder = path.join(await canonicalDirectory(root), '.irudd-okf');
   await fs.mkdir(folder, { recursive: true });
   if ((await fs.lstat(folder)).isSymbolicLink()) throw new OkfError('UNSAFE_PATH', 'Recovery directory must not be a symbolic link.');
   const lock = path.join(folder, 'write.lock');
@@ -80,7 +102,7 @@ export async function withLock<A>(root: string, run: () => Promise<A>): Promise<
   finally { await handle.close(); await fs.unlink(lock); }
 }
 export async function recovery(root: string, raw: string): Promise<string> {
-  const directory = path.join(root, '.irudd-okf', 'recovery');
+  const directory = path.join(await canonicalDirectory(root), '.irudd-okf', 'recovery');
   await fs.mkdir(directory, { recursive: true });
   if ((await fs.lstat(directory)).isSymbolicLink()) throw new OkfError('UNSAFE_PATH', 'Recovery directory must not be a symbolic link.');
   const file = path.join(directory, `${Date.now()}-${randomUUID()}.md`);
@@ -106,16 +128,17 @@ export async function atomicCreate(file: string, raw: string): Promise<void> {
 }
 
 export async function readRaw(bundle: Bundle, relative: string): Promise<string> {
-  const file = path.join(bundle.root, cleanPath(relative));
+  const file = path.join(await normalizeSystemPath(bundle.root), cleanPath(relative));
   if (await fs.realpath(file) !== file) throw new OkfError('UNSAFE_PATH', 'Symbolic links are not supported inside bundles.', { path: relative });
   const handle = await fs.open(file, constants.O_RDONLY | constants.O_NOFOLLOW);
   try { return await handle.readFile('utf8'); } finally { await handle.close(); }
 }
 
 export async function ensureDirectory(absolute: string): Promise<void> {
-  const parsed = path.parse(path.resolve(absolute));
+  const normalized = await normalizeSystemPath(absolute);
+  const parsed = path.parse(normalized);
   let current = parsed.root;
-  for (const component of path.resolve(absolute).slice(parsed.root.length).split(path.sep)) {
+  for (const component of normalized.slice(parsed.root.length).split(path.sep)) {
     if (!component) continue;
     current = path.join(current, component);
     await fs.mkdir(current).catch(error => { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; });

@@ -5,10 +5,10 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { OkfError, type Bundle, type MemoryContext, type Operation } from './contracts.ts';
 import { ConfigSchema, decode } from './schemas.ts';
-import { absent, operation, within, withLock, atomicReplace, atomicCreate, ensureDirectory } from './files.ts';
+import { absent, operation, within, withLock, atomicReplace, atomicCreate, ensureDirectory, canonicalDirectory, normalizeSystemPath } from './files.ts';
 
 interface Config { version: 1; bundles: Array<{ name: string; path: string; personal?: boolean }>; active: string[] }
-const globalPath = () => path.join(os.homedir(), '.config', 'irudd-okf', 'config.json');
+const globalPath = () => path.join(process.env.XDG_CONFIG_HOME ?? path.join(os.homedir(), '.config'), 'irudd-okf', 'config.json');
 const expand = (input: string, base: string) => path.resolve(base, input.startsWith('~/') ? path.join(os.homedir(), input.slice(2)) : input);
 function checkName(name: string) { if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(name)) throw new OkfError('INVALID_CONFIG', 'Bundle names must contain letters, numbers, hyphens or underscores.', { name }); }
 async function readConfig(file: string): Promise<Config> {
@@ -31,8 +31,7 @@ async function readConfig(file: string): Promise<Config> {
 async function mount(name: string, root: string, kind: Bundle['kind']): Promise<Bundle> {
   checkName(name);
   let real: string;
-  try { real = await fs.realpath(root); } catch (error) { if (absent(error)) throw new OkfError('BUNDLE_NOT_FOUND', 'The selected bundle does not exist.', { name, root }); throw error; }
-  if (real !== path.resolve(root) || !(await fs.lstat(root)).isDirectory()) throw new OkfError('UNSAFE_PATH', 'Bundle roots must be directories without symbolic links.', { name, root });
+  try { real = await canonicalDirectory(root); } catch (error) { if (absent(error)) throw new OkfError('BUNDLE_NOT_FOUND', 'The selected bundle does not exist.', { name, root }); throw error; }
   let writable = true;
   await fs.access(real, fs.constants.W_OK).catch(() => { writable = false; });
   return { name, root: real, kind, writable };
@@ -53,7 +52,7 @@ export function resolveContext(options: { cwd?: string; configPath?: string; exp
         const localPath = path.join(gitRoot, '.irudd-okf.json');
         const local = await readConfig(localPath);
         for (const entry of local.bundles) {
-          const root = expand(entry.path, gitRoot);
+          const root = await normalizeSystemPath(expand(entry.path, gitRoot));
           if (!within(gitRoot, root) || entry.personal) throw new OkfError('UNSAFE_CONFIG', 'Repository configuration can mount only folders within its Git repository.', { root });
           if (!local.active.includes(entry.name)) continue;
           const real = await fs.realpath(root).catch(error => { if (absent(error)) throw new OkfError('BUNDLE_NOT_FOUND', 'A repository-configured bundle does not exist.', { root }); throw error; });

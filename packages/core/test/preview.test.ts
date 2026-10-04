@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { Effect } from 'effect';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { createStore } from '../src/index.ts';
@@ -15,7 +15,7 @@ describe('shared link resolution and exact rename preview', () => {
     expect(resolveLinkTarget('one.md', '../../outside.md').unsafe).toBe(true);
   });
   it('previews every affected raw file and rejects a backlink changed after preview', async () => {
-    directory = await mkdtemp(resolve(tmpdir(), 'okf-rename-preview-'));
+    directory = await realpath(await mkdtemp(resolve(tmpdir(), 'okf-rename-preview-')));
     const root = resolve(directory, '.okf'); await mkdir(root);
     const source = '---\ntype: Rule\n---\n[Ref](ref.md)\n';
     const ref = '---\ntype: Decision\n---\n[Rule](old.md)\n';

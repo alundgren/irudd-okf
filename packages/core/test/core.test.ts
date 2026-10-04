@@ -9,7 +9,7 @@ import { createStore, resolveContext, initializeBundle, registerBundle, unregist
 vi.mock('node:fs/promises', async importOriginal => ({ ...await importOriginal<typeof import('node:fs/promises')>() }));
 const directories: string[] = [];
 async function fixture() {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'okf-core-')); directories.push(root);
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'okf-core-'))); directories.push(root);
   const configPath = path.join(root, 'config.json');
   const bundle = path.join(root, '.okf'); await fs.mkdir(bundle);
   const context: MemoryContext = { version: 1, cwd: root, gitRoot: null, configPath, bundles: [{ name: 'repo', root: bundle, kind: 'repository', writable: true }] };
