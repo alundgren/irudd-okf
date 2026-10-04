@@ -3,16 +3,18 @@ import { createServer, type Server } from "node:http";
 import { readFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { chromium, type Browser } from "playwright";
-import type { Concept } from "../../core/src/contracts.ts";
+import type { Concept, RenamePreview } from "../../core/src/contracts.ts";
 
 let server: Server, browser: Browser, origin: string;
 const enabled = process.env.OKF_BROWSER_TEST === "1";
 const concepts = new Map<string, Concept>();
 let forceConflict = false,
   publishAttempts = 0;
+let repositoryRoot = "/work/repo/.okf";
+let renamePreview: RenamePreview | null = null;
 const writes: Array<Record<string, unknown>> = [];
 const initialRaw =
-  "---\ntype: rule\ntitle: Clean test artifacts\nproducer:\n  unknown: keep-me\n---\n\n# Cleanup\n\nRemove test files. [Related](other.md). [Missing](missing.md).\n\n![Remote image](https://example.invalid/image.png)\n\n<script>window.markdownExecuted = true</script>\n";
+  "---\ntype: rule\ntitle: Clean test artifacts\nproducer:\n  unknown: keep-me\n---\n\n# Cleanup\n\nRemove test files. [Related](other.md). [Missing](missing.md). [Nested](nested/). [Query target](other.md?view=1#related).\n\n![Remote image](https://example.invalid/image.png)\n\n<script>window.markdownExecuted = true</script>\n";
 const make = (path: string, raw: string, hash = "hash-1"): Concept => ({
   bundle: "repo",
   path,
@@ -30,14 +32,23 @@ const make = (path: string, raw: string, hash = "hash-1"): Concept => ({
     { target: "other.md", label: "Related", external: false, broken: false },
     { target: "missing.md", label: "Missing", external: false, broken: true },
   ],
-  backlinks: [],
+  backlinks:
+    path === "cleanup.md" || path === "renamed.md"
+      ? [{ bundle: "repo", path: "other.md", title: "Referring document" }]
+      : [],
 });
 
 beforeAll(async () => {
   if (!enabled) return;
   execFileSync("node_modules/.bin/vp", ["build"], { cwd: process.cwd(), stdio: "pipe" });
   concepts.set("cleanup.md", make("cleanup.md", initialRaw));
-  concepts.set("other.md", make("other.md", "---\ntype: concept\n---\n\nRelated facts."));
+  concepts.set(
+    "other.md",
+    make(
+      "other.md",
+      "---\ntype: concept\n---\n\n# Related\n\nRelated facts. [Cleanup](cleanup.md).",
+    ),
+  );
   for (let index = 0; index < 40; index++)
     concepts.set(`rule-${index}.md`, make(`rule-${index}.md`, "---\ntype: rule\n---\n\nA rule."));
   server = createServer(async (req, res) => {
@@ -65,7 +76,7 @@ beforeAll(async () => {
               gitRoot: "/work/repo",
               configPath: "/work/config.json",
               bundles: [
-                { name: "repo", root: "/work/repo/.okf", kind: "repository", writable: true },
+                { name: "repo", root: repositoryRoot, kind: "repository", writable: true },
                 { name: "me", root: "/work/personal", kind: "personal", writable: true },
               ],
             });
@@ -112,23 +123,63 @@ beforeAll(async () => {
                 recoveryPath: req.method === "DELETE" ? "/recovery/deleted.md" : undefined,
               });
             }
+            if (path === "nested/index.md")
+              return json(make(path, "# Nested authored index\n\nNested navigation."));
             return concepts.has(path)
               ? json(concepts.get(path))
               : json(
                   { version: 1, error: { code: "missing", message: "File missing", details: {} } },
                   404,
                 );
-          case "/api/rename": {
-            writes.push(body);
+          case "/api/rename/preview": {
             const current = concepts.get(body.path)!;
-            concepts.delete(body.path);
-            concepts.set(body.newPath, make(body.newPath, current.raw, "hash-renamed"));
+            const referrer = concepts.get("other.md")!;
+            renamePreview = {
+              version: 1,
+              bundle: body.bundle,
+              path: body.path,
+              newPath: body.newPath,
+              previewHash: "reviewed-rename-digest",
+              changes: [
+                { path: body.path, before: current.raw, after: "" },
+                { path: body.newPath, before: "", after: current.raw },
+                ...(body.updateLinks
+                  ? [
+                      {
+                        path: "other.md",
+                        before: referrer.raw,
+                        after: referrer.raw.replaceAll(body.path, body.newPath),
+                      },
+                    ]
+                  : []),
+              ],
+            };
+            return json(renamePreview);
+          }
+          case "/api/rename": {
+            if (!renamePreview || body.previewHash !== renamePreview.previewHash)
+              return json(
+                {
+                  version: 1,
+                  error: {
+                    code: "REVIEW_REQUIRED",
+                    message: "Preview every affected file before renaming.",
+                    details: {},
+                  },
+                },
+                409,
+              );
+            writes.push(body);
+            for (const change of renamePreview.changes) {
+              if (!change.after) concepts.delete(change.path);
+              else concepts.set(change.path, make(change.path, change.after, "hash-renamed"));
+            }
             return json({
               version: 1,
               bundle: body.bundle,
               path: body.newPath,
               hash: "hash-renamed",
-              changedPaths: [body.path, body.newPath],
+              changedPaths: renamePreview.changes.map((change) => change.path),
             });
           }
           case "/api/search": {
@@ -286,6 +337,21 @@ it.runIf(enabled)(
     expect(await page.locator("img").count()).toBe(0);
     expect(await page.evaluate(() => "markdownExecuted" in window)).toBe(false);
     expect(external).toEqual([]);
+    const nestedLink = page.locator(".markdown").getByRole("link", { name: "Nested", exact: true });
+    expect(await nestedLink.getAttribute("href")).toContain("path=nested%2Findex.md");
+    expect(
+      await page
+        .locator(".markdown")
+        .getByRole("link", { name: "Query target", exact: true })
+        .getAttribute("href"),
+    ).toContain("path=other.md#related");
+    await nestedLink.click();
+    await page.getByRole("heading", { name: "nested/index.md", exact: true }).waitFor();
+    await page
+      .locator(".browse")
+      .getByRole("link", { name: "Clean test artifacts", exact: true })
+      .click();
+    await page.getByRole("heading", { name: "Clean test artifacts", exact: true }).waitFor();
     expect(await page.getByText("Missing · missing · missing.md", { exact: true }).count()).toBe(1);
     await page.getByRole("searchbox").fill("cleanup");
     await page.getByRole("button", { name: "Search", exact: true }).click();
@@ -357,12 +423,46 @@ it.runIf(enabled)(
     await page.getByRole("button", { name: "Discard and continue" }).click();
     await page.getByRole("button", { name: "Rename", exact: true }).click();
     await page.getByLabel("New file path").fill("renamed.md");
+    const beforeRename = writes.length;
+    await page.route("**/api/rename/preview", (route) =>
+      route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({
+          version: 1,
+          error: {
+            code: "PREVIEW_FAILED",
+            message: "The rename preview could not be prepared.",
+            details: {},
+          },
+        }),
+      }),
+    );
     await page.getByRole("button", { name: "Preview changes" }).click();
+    await page.getByText("The rename preview could not be prepared.", { exact: true }).waitFor();
+    expect(await page.getByRole("button", { name: "Rename file" }).count()).toBe(0);
+    expect(writes.length).toBe(beforeRename);
+    await page.unroute("**/api/rename/preview");
+    await page.getByRole("button", { name: "Preview changes" }).click();
+    await page.getByRole("button", { name: "Rename file" }).waitFor();
+    expect(writes.length).toBe(beforeRename);
+    expect(await page.locator(".rename-changes summary").allTextContents()).toEqual([
+      "cleanup.md",
+      "renamed.md",
+      "other.md",
+    ]);
+    expect(await page.locator(".rename-changes").textContent()).toContain("[Cleanup](renamed.md)");
     await page.getByRole("button", { name: "Rename file" }).click();
+    expect(writes.at(-1)?.previewHash).toBe("reviewed-rename-digest");
     await page.getByRole("heading", { name: "renamed.md", exact: true }).waitFor();
     expect(concepts.has("cleanup.md")).toBe(false);
     await page.getByRole("button", { name: "Delete", exact: true }).click();
     await page.getByRole("button", { name: "Preview changes" }).click();
+    await page.getByRole("button", { name: "Delete file" }).waitFor();
+    expect(await page.locator(".delete-referrers").textContent()).toContain("other.md");
+    expect(await page.locator(".delete-referrers").textContent()).toContain(
+      "pointing to a missing file",
+    );
     await page.getByRole("button", { name: "Delete file" }).click();
     await page.getByRole("heading", { name: "index.md", exact: true }).waitFor();
     expect(concepts.has("renamed.md")).toBe(false);
@@ -418,4 +518,31 @@ it.runIf(enabled)(
     await page.close();
   },
   60000,
+);
+
+it.runIf(enabled)(
+  "keeps recovered drafts inside the canonical bundle root when the same server address is reused",
+  async () => {
+    const page = await browser.newPage();
+    repositoryRoot = "/work/repository-A/.okf";
+    await page.goto(`${origin}/wiki?bundle=repo&path=other.md`);
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
+    await page
+      .getByLabel("Raw Markdown, including YAML metadata")
+      .fill("---\ntype: rule\n---\n\nRepository A private draft.");
+    repositoryRoot = "/work/repository-B/.okf";
+    await page.reload();
+    await page.getByRole("button", { name: "Edit", exact: true }).waitFor();
+    expect(await page.getByRole("button", { name: "Recover draft" }).count()).toBe(0);
+    expect(await page.locator("body").textContent()).not.toContain("Repository A private draft.");
+    expect(await page.locator(".scope-detail").textContent()).toContain("/work/repository-B/.okf");
+    repositoryRoot = "/work/repository-A/.okf";
+    await page.reload();
+    await page.getByRole("button", { name: "Recover draft" }).click();
+    expect(await page.getByLabel("Raw Markdown, including YAML metadata").inputValue()).toContain(
+      "Repository A private draft.",
+    );
+    await page.close();
+    repositoryRoot = "/work/repo/.okf";
+  },
 );

@@ -14,6 +14,7 @@ import { request, RequestError, type Responses } from "./api.ts";
 import { boundedGraph } from "./content.ts";
 
 export interface Draft {
+  root: string;
   bundle: string;
   path: string;
   raw: string;
@@ -23,6 +24,7 @@ export interface Draft {
   newPath: string;
   updateLinks: boolean;
   preview: boolean;
+  referrers: Concept["backlinks"];
 }
 export type Intent =
   | { _tag: "Open"; bundle: string; path: string; fragment?: string }
@@ -40,12 +42,13 @@ type Loaded = {
     value: Responses[K];
     lane: string;
     id: number;
+    scope: RequestScope | null;
   };
 }[keyof Responses];
 export type Message =
   | Intent
   | Loaded
-  | { _tag: "Failed"; lane: string; id: number; error: RequestError }
+  | { _tag: "Failed"; lane: string; id: number; error: RequestError; scope: RequestScope | null }
   | { _tag: "Refresh" }
   | { _tag: "Reload" }
   | { _tag: "Query"; value: string }
@@ -60,7 +63,7 @@ export type Message =
   | { _tag: "Stay" }
   | { _tag: "Copy" }
   | { _tag: "Notice"; text: string }
-  | { _tag: "Recovery"; draft: Draft | null; bundle: string; path: string }
+  | { _tag: "Recovery"; draft: Draft | null; bundle: string; path: string; root: string }
   | { _tag: "Recover" }
   | { _tag: "ForgetRecovery" }
   | { _tag: "UseCurrent" }
@@ -94,6 +97,7 @@ export interface Model {
   draft: Draft | null;
   recovery: Draft | null;
   conflict: Concept | null;
+  renamePreview: Responses["renamePreview"] | null;
   pendingIntent: Intent | null;
   status: GitStatus | null;
   selectedPaths: string[];
@@ -137,6 +141,7 @@ export function initialModel(): Model {
     draft: null,
     recovery: null,
     conflict: null,
+    renamePreview: null,
     pendingIntent: null,
     status: null,
     selectedPaths: [],
@@ -158,6 +163,50 @@ export const dirty = (model: Model) =>
   (model.draft.operation !== "write" ||
     model.draft.raw !== model.draft.original ||
     model.draft.expectedHash === null);
+interface RequestScope {
+  bundle: string;
+  root: string;
+}
+const bundleRoot = (model: Model, bundle = model.bundle) =>
+  model.context?.bundles.find((item) => item.name === bundle)?.root ?? "";
+const sameScope = (model: Model, scope: RequestScope | null) =>
+  scope === null || (scope.bundle === model.bundle && scope.root === bundleRoot(model));
+function clearScope(model: Model, bundle: string): Model {
+  return {
+    ...model,
+    bundle,
+    requests: {},
+    busy: [],
+    errors: {},
+    concept: null,
+    concepts: [],
+    graph: null,
+    search: null,
+    query: "",
+    status: null,
+    selectedPaths: [],
+    gitPreview: null,
+    renamePreview: null,
+    validation: null,
+    pr: null,
+    recovery: null,
+    conflict: null,
+    listOffset: 0,
+    base: "",
+  };
+}
+function clearRenamePreview(model: Model): Model {
+  return {
+    ...model,
+    renamePreview: null,
+    requests: Object.fromEntries(
+      Object.entries(model.requests).filter(
+        ([lane]) => lane !== "renamePreview" && lane !== "deletePreview",
+      ),
+    ),
+    busy: model.busy.filter((lane) => lane !== "renamePreview" && lane !== "deletePreview"),
+  };
+}
 type Result = Update.Return<Model, Message>;
 type Commands = Array<Command.Command<Message>>;
 const done = (model: Model, commands: Commands = []): Result => ({ model, commands });
@@ -171,6 +220,7 @@ export function issue<K extends keyof Responses>(
   lane: string = kind,
 ): Result {
   const id = model.sequence + 1;
+  const scope = kind === "context" ? null : { bundle: model.bundle, root: bundleRoot(model) };
   return {
     model: {
       ...model,
@@ -183,8 +233,10 @@ export function issue<K extends keyof Responses>(
       {
         name: `Fetch${kind}`,
         effect: request(kind, endpoint, params, body, method).pipe(
-          Effect.map((value) => ({ _tag: "Loaded", kind, value, lane, id }) as Loaded),
-          Effect.catch((error) => Effect.succeed<Message>({ _tag: "Failed", error, lane, id })),
+          Effect.map((value) => ({ _tag: "Loaded", kind, value, lane, id, scope }) as Loaded),
+          Effect.catch((error) =>
+            Effect.succeed<Message>({ _tag: "Failed", error, lane, id, scope }),
+          ),
         ),
       },
     ],
@@ -214,8 +266,10 @@ function route(model: Model): Command.Command<Message> {
     }),
   };
 }
-const draftKey = (draft: Pick<Draft, "bundle" | "path">) =>
-  `okf-draft:${draft.bundle}:${draft.path}`;
+const draftKey = (draft: Pick<Draft, "root" | "bundle" | "path">) =>
+  `okf-draft:v2:${JSON.stringify([draft.root, draft.bundle, draft.path])}`;
+const lastDraftKey = (draft: Pick<Draft, "root" | "bundle">) =>
+  `okf-last-draft:v2:${JSON.stringify([draft.root, draft.bundle])}`;
 function persist(draft: Draft | null, old?: Draft | null): Command.Command<Message> {
   return {
     name: "KeepDraft",
@@ -223,12 +277,12 @@ function persist(draft: Draft | null, old?: Draft | null): Command.Command<Messa
       try {
         if (old && (!draft || old.path !== draft.path)) {
           sessionStorage.removeItem(draftKey(old));
-          if (sessionStorage.getItem(`okf-last-draft:${old.bundle}`) === draftKey(old))
-            sessionStorage.removeItem(`okf-last-draft:${old.bundle}`);
+          if (sessionStorage.getItem(lastDraftKey(old)) === draftKey(old))
+            sessionStorage.removeItem(lastDraftKey(old));
         }
         if (draft) {
           sessionStorage.setItem(draftKey(draft), JSON.stringify(draft));
-          sessionStorage.setItem(`okf-last-draft:${draft.bundle}`, draftKey(draft));
+          sessionStorage.setItem(lastDraftKey(draft), draftKey(draft));
         }
         return { _tag: "Noop" } as Message;
       } catch {
@@ -244,10 +298,16 @@ function recovery(model: Model): Command.Command<Message> {
   return {
     name: "ReadDraft",
     effect: Effect.sync(() => {
+      const root = bundleRoot(model);
       try {
-        const raw =
-          sessionStorage.getItem(draftKey({ bundle: model.bundle, path: model.desiredPath })) ??
-          sessionStorage.getItem(sessionStorage.getItem(`okf-last-draft:${model.bundle}`) ?? "");
+        const raw = root
+          ? (sessionStorage.getItem(
+              draftKey({ root, bundle: model.bundle, path: model.desiredPath }),
+            ) ??
+            sessionStorage.getItem(
+              sessionStorage.getItem(lastDraftKey({ root, bundle: model.bundle })) ?? "",
+            ))
+          : null;
         const value = raw ? JSON.parse(raw) : null;
         const valid =
           value &&
@@ -255,6 +315,20 @@ function recovery(model: Model): Command.Command<Message> {
           typeof value.original === "string" &&
           typeof value.path === "string" &&
           value.bundle === model.bundle &&
+          value.root === root &&
+          !!root &&
+          Array.isArray(value.referrers) &&
+          value.referrers.every(
+            (item: unknown) =>
+              !!item &&
+              typeof item === "object" &&
+              "bundle" in item &&
+              typeof item.bundle === "string" &&
+              "path" in item &&
+              typeof item.path === "string" &&
+              "title" in item &&
+              typeof item.title === "string",
+          ) &&
           (value.operation === "write" ||
             value.operation === "rename" ||
             value.operation === "delete") &&
@@ -272,6 +346,7 @@ function recovery(model: Model): Command.Command<Message> {
               : null,
           bundle: model.bundle,
           path: model.desiredPath,
+          root,
         } as Message;
       } catch {
         return {
@@ -279,6 +354,7 @@ function recovery(model: Model): Command.Command<Message> {
           draft: null,
           bundle: model.bundle,
           path: model.desiredPath,
+          root,
         } as Message;
       }
     }),
@@ -347,7 +423,9 @@ function navigate(model: Model, intent: Intent): Result {
   if (intent._tag === "Cancel")
     return done({ ...model, draft: null, conflict: null }, [persist(null, model.draft)]);
   if (intent._tag === "New") {
+    if (!bundleRoot(model)) return done(model);
     const draft: Draft = {
+      root: bundleRoot(model),
       bundle: model.bundle,
       path: "",
       raw: "---\ntype: concept\ntitle: New concept\n---\n\n",
@@ -357,6 +435,7 @@ function navigate(model: Model, intent: Intent): Result {
       newPath: "",
       updateLinks: false,
       preview: false,
+      referrers: [],
     };
     return done({
       ...model,
@@ -368,26 +447,19 @@ function navigate(model: Model, intent: Intent): Result {
       errors: {},
     });
   }
-  let next = { ...model, draft: null, conflict: null, recovery: null, notice: "", errors: {} };
+  let next = clearRenamePreview({
+    ...model,
+    draft: null,
+    conflict: null,
+    recovery: null,
+    notice: "",
+    errors: {},
+  });
   if (intent._tag === "Scope")
-    next = {
-      ...next,
-      bundle: intent.bundle,
-      concept: null,
-      desiredPath: "",
-      fragment: "",
-      concepts: [],
-      graph: null,
-      search: null,
-      query: "",
-      status: null,
-      selectedPaths: [],
-      gitPreview: null,
-      pr: null,
-      listOffset: 0,
-    };
+    next = { ...clearScope(next, intent.bundle), desiredPath: "", fragment: "" };
   if (intent._tag === "View") next = { ...next, view: intent.view };
-  if (intent._tag === "Open")
+  if (intent._tag === "Open") {
+    if (intent.bundle !== next.bundle) next = clearScope(next, intent.bundle);
     next = {
       ...next,
       bundle: intent.bundle,
@@ -397,6 +469,7 @@ function navigate(model: Model, intent: Intent): Result {
       view: "wiki",
       search: null,
     };
+  }
   if (intent._tag === "Index")
     next = {
       ...next,
@@ -408,6 +481,8 @@ function navigate(model: Model, intent: Intent): Result {
     };
   if (intent._tag === "Route") {
     const url = new URL(intent.url, location.origin);
+    const bundle = url.searchParams.get("bundle") ?? model.bundle;
+    if (bundle !== next.bundle) next = clearScope(next, bundle);
     next = {
       ...next,
       view: url.pathname === "/graph" ? "graph" : "wiki",
@@ -428,7 +503,8 @@ export function update(model: Model, message: Message): Result {
     return navigate(model, message as Intent);
   switch (message._tag) {
     case "Loaded": {
-      if (model.requests[message.lane] !== message.id) return done(model);
+      if (model.requests[message.lane] !== message.id || !sameScope(model, message.scope))
+        return done(model);
       const next = { ...model, busy: model.busy.filter((lane) => lane !== message.lane) };
       switch (message.kind) {
         case "context": {
@@ -440,6 +516,8 @@ export function update(model: Model, message: Message): Result {
           return { ...result, commands: [...(result.commands ?? []), recovery(result.model)] };
         }
         case "list":
+          if (message.value.concepts.some((concept) => concept.bundle !== model.bundle))
+            return done(next);
           return done({
             ...next,
             concepts: message.value.concepts,
@@ -449,6 +527,27 @@ export function update(model: Model, message: Message): Result {
             ),
           });
         case "concept": {
+          if (message.value.bundle !== model.bundle) return done(next);
+          if (message.lane === "renameConflict") {
+            if (next.draft?.operation !== "rename" || next.draft.path !== message.value.path)
+              return done(next);
+            return done({
+              ...next,
+              conflict: next.draft.expectedHash !== message.value.hash ? message.value : null,
+              concept: message.value,
+            });
+          }
+          if (message.lane === "deletePreview") {
+            if (next.draft?.operation !== "delete" || next.draft.path !== message.value.path)
+              return done(next);
+            if (next.draft.expectedHash !== message.value.hash)
+              return done({ ...next, conflict: message.value });
+            return done({
+              ...next,
+              concept: message.value,
+              draft: { ...next.draft, referrers: message.value.backlinks, preview: true },
+            });
+          }
           if (message.lane === "conflict") return done({ ...next, conflict: message.value });
           const result = {
             ...next,
@@ -475,11 +574,19 @@ export function update(model: Model, message: Message): Result {
           return done(result, commands);
         }
         case "search":
-          return done({ ...next, search: message.value });
+          return message.value.results.some((concept) => concept.bundle !== model.bundle)
+            ? done(next)
+            : done({ ...next, search: message.value });
         case "graph":
-          return done({ ...next, graph: boundedGraph(message.value, next.graphLimit) });
+          return message.value.nodes.some((concept) => concept.bundle !== model.bundle)
+            ? done(next)
+            : done({ ...next, graph: boundedGraph(message.value, next.graphLimit) });
         case "validation":
-          return done({ ...next, validation: message.value });
+          return message.value.diagnostics.some(
+            (diagnostic) => diagnostic.bundle !== undefined && diagnostic.bundle !== model.bundle,
+          )
+            ? done(next)
+            : done({ ...next, validation: message.value });
         case "status":
           return done({
             ...next,
@@ -489,7 +596,20 @@ export function update(model: Model, message: Message): Result {
             ),
           });
         case "preview":
-          return done({ ...next, gitPreview: message.value, pr: null });
+          return message.value.bundle === model.bundle
+            ? done({ ...next, gitPreview: message.value, pr: null })
+            : done(next);
+        case "renamePreview":
+          return next.draft?.operation === "rename" &&
+            message.value.bundle === model.bundle &&
+            message.value.path === next.draft.path &&
+            message.value.newPath === next.draft.newPath
+            ? done({
+                ...next,
+                renamePreview: message.value,
+                draft: { ...next.draft, preview: true },
+              })
+            : done(next);
         case "pr":
           return done({
             ...next,
@@ -497,6 +617,7 @@ export function update(model: Model, message: Message): Result {
             notice: "Pull request created. Open it to review and merge on GitHub.",
           });
         case "mutation": {
+          if (message.value.bundle !== model.bundle) return done(next);
           const result = refresh({
             ...next,
             draft: null,
@@ -515,12 +636,27 @@ export function update(model: Model, message: Message): Result {
       }
     }
     case "Failed": {
-      if (model.requests[message.lane] !== message.id) return done(model);
+      if (model.requests[message.lane] !== message.id || !sameScope(model, message.scope))
+        return done(model);
       const next = {
         ...model,
         busy: model.busy.filter((lane) => lane !== message.lane),
         errors: { ...model.errors, [message.lane]: message.error },
       };
+      if (
+        (message.lane === "mutation" || message.lane === "renamePreview") &&
+        message.error.status === 409 &&
+        model.draft?.operation === "rename"
+      )
+        return issue(
+          { ...clearRenamePreview(next), draft: { ...model.draft, preview: false } },
+          "concept",
+          "concept",
+          { bundle: model.draft.bundle, path: model.draft.path },
+          undefined,
+          "GET",
+          "renameConflict",
+        );
       if (message.lane === "mutation" && message.error.status === 409 && model.draft !== null)
         return issue(
           next,
@@ -558,7 +694,9 @@ export function update(model: Model, message: Message): Result {
       return done({ ...model, listOffset: message.offset });
     case "Edit": {
       if (!model.concept) return done(model);
+      if (!bundleRoot(model)) return done(model);
       const draft: Draft = {
+        root: bundleRoot(model),
         bundle: model.bundle,
         path: model.concept.path,
         raw: model.concept.raw,
@@ -568,6 +706,7 @@ export function update(model: Model, message: Message): Result {
         newPath: model.concept.path,
         updateLinks: true,
         preview: false,
+        referrers: model.concept.backlinks,
       };
       return done({ ...model, draft, conflict: null, recovery: null, notice: "", errors: {} }, [
         persist(draft),
@@ -576,26 +715,75 @@ export function update(model: Model, message: Message): Result {
     case "Draft": {
       if (!model.draft) return done(model);
       const draft = { ...model.draft, [message.field]: message.value, preview: false };
-      return done({ ...model, draft }, [persist(draft, model.draft)]);
+      return done({ ...clearRenamePreview(model), draft }, [persist(draft, model.draft)]);
     }
     case "UpdateLinks":
       return model.draft
         ? done(
-            { ...model, draft: { ...model.draft, updateLinks: message.value, preview: false } },
+            {
+              ...clearRenamePreview(model),
+              draft: { ...model.draft, updateLinks: message.value, preview: false },
+            },
             [persist({ ...model.draft, updateLinks: message.value, preview: false })],
           )
         : done(model);
-    case "PreviewDraft":
-      return model.draft
-        ? done({ ...model, draft: { ...model.draft, preview: true } })
-        : done(model);
+    case "PreviewDraft": {
+      const draft = model.draft;
+      if (!draft) return done(model);
+      const next = clearRenamePreview(model);
+      if (draft.operation === "rename")
+        return issue(
+          next,
+          "renamePreview",
+          "rename/preview",
+          {},
+          {
+            bundle: draft.bundle,
+            path: draft.path,
+            expectedHash: draft.expectedHash,
+            authorizePersonal: true,
+            newPath: draft.newPath,
+            updateLinks: draft.updateLinks,
+          },
+          "POST",
+        );
+      if (draft.operation === "delete")
+        return issue(
+          next,
+          "concept",
+          "concept",
+          { bundle: draft.bundle, path: draft.path },
+          undefined,
+          "GET",
+          "deletePreview",
+        );
+      return done({ ...next, draft: { ...draft, preview: true } });
+    }
     case "ContinueDraft":
       return model.draft
-        ? done({ ...model, draft: { ...model.draft, preview: false } })
+        ? done({ ...clearRenamePreview(model), draft: { ...model.draft, preview: false } })
         : done(model);
     case "Save": {
       const draft = model.draft;
       if (!draft?.preview || model.busy.includes("mutation") || model.conflict) return done(model);
+      if (
+        !draft.root ||
+        draft.root !== bundleRoot(model, draft.bundle) ||
+        draft.bundle !== model.bundle
+      )
+        return done({
+          ...model,
+          notice:
+            "The bundle directory changed. Copy this draft before opening the current bundle.",
+        });
+      if (
+        draft.operation === "rename" &&
+        (!model.renamePreview ||
+          model.renamePreview.bundle !== draft.bundle ||
+          model.renamePreview.path !== draft.path ||
+          model.renamePreview.newPath !== draft.newPath)
+      )
+        return done(model);
       const common = {
         bundle: draft.bundle,
         path: draft.path,
@@ -610,7 +798,12 @@ export function update(model: Model, message: Message): Result {
         draft.operation === "write"
           ? { ...common, raw: draft.raw }
           : draft.operation === "rename"
-            ? { ...common, newPath: draft.newPath, updateLinks: draft.updateLinks }
+            ? {
+                ...common,
+                newPath: draft.newPath,
+                updateLinks: draft.updateLinks,
+                previewHash: model.renamePreview?.previewHash,
+              }
             : common,
         draft.operation === "delete" ? "DELETE" : "POST",
       );
@@ -646,11 +839,20 @@ export function update(model: Model, message: Message): Result {
     case "Notice":
       return done({ ...model, notice: message.text });
     case "Recovery":
-      return model.draft || model.bundle !== message.bundle || model.desiredPath !== message.path
+      return model.draft ||
+        model.bundle !== message.bundle ||
+        model.desiredPath !== message.path ||
+        message.root !== bundleRoot(model) ||
+        (message.draft !== null && message.draft.root !== bundleRoot(model))
         ? done(model)
         : done({ ...model, recovery: message.draft });
     case "Recover": {
-      if (!model.recovery) return done(model);
+      if (
+        !model.recovery ||
+        model.recovery.bundle !== model.bundle ||
+        model.recovery.root !== bundleRoot(model)
+      )
+        return done({ ...model, recovery: null });
       const draft = { ...model.recovery, preview: false };
       const next = {
         ...model,

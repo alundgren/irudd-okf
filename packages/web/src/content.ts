@@ -2,6 +2,7 @@ import MarkdownIt from "markdown-it";
 import type Token from "markdown-it/lib/token.mjs";
 import type { Html } from "foldkit";
 import type { Concept, Graph } from "../../core/src/contracts.ts";
+import { resolveLinkTarget } from "../../core/src/links.ts";
 
 export const markdown = new MarkdownIt({ html: false, linkify: false, typographer: false });
 export function resolveLink(
@@ -12,35 +13,22 @@ export function resolveLink(
   | { kind: "external"; href: string }
   | { kind: "internal"; bundle: string; path: string; fragment: string }
   | { kind: "blocked" } {
-  if (/^(https?:|mailto:)/i.test(href)) return { kind: "external", href };
-  if (/^[a-z][a-z\d+.-]*:/i.test(href) || href.startsWith("//") || href.includes("\\"))
-    return { kind: "blocked" };
+  const resolved = resolveLinkTarget(sourcePath, href);
+  if (resolved.unsafe) return { kind: "blocked" };
+  if (resolved.external)
+    return /^(https?:|mailto:)/i.test(href) ? { kind: "external", href } : { kind: "blocked" };
   try {
-    const [rawPath, fragment = ""] = href.split("#", 2);
-    const decoded = decodeURIComponent(rawPath!);
-    const parts = (
-      decoded.startsWith("/")
-        ? decoded.slice(1)
-        : `${sourcePath.split("/").slice(0, -1).join("/")}/${decoded}`
-    ).split("/");
-    const result: string[] = [];
-    for (const part of parts) {
-      if (!part || part === ".") continue;
-      if (part === "..") {
-        if (!result.length) return { kind: "blocked" };
-        result.pop();
-      } else result.push(part);
-    }
     return {
       kind: "internal",
       bundle,
-      path: rawPath ? result.join("/") : sourcePath,
-      fragment: decodeURIComponent(fragment),
+      path: resolved.target,
+      fragment: decodeURIComponent(resolved.fragment ?? ""),
     };
   } catch {
     return { kind: "blocked" };
   }
 }
+
 export const headingId = (text: string) =>
   text
     .toLowerCase()

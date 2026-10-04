@@ -347,6 +347,12 @@ export function view(model: Model, h: Html.HtmlBuilder<Message>): Html.Html {
             )
           : null,
         error("mutation"),
+        error("renamePreview"),
+        error("deletePreview"),
+        error("renameConflict"),
+        busy("renamePreview") || busy("deletePreview")
+          ? h.p([h.Role("status")], ["Preparing changes preview…"])
+          : null,
         error("conflict"),
         error("restore"),
         model.conflict
@@ -438,9 +444,14 @@ export function view(model: Model, h: Html.HtmlBuilder<Message>): Html.Html {
                   [h.Class("actions")],
                   [
                     button(
-                      "Preview changes",
+                      busy("renamePreview") || busy("deletePreview")
+                        ? "Preparing preview…"
+                        : "Preview changes",
                       { _tag: "PreviewDraft" },
-                      !draft.path.trim() || (draft.operation === "rename" && !draft.newPath.trim()),
+                      busy("renamePreview") ||
+                        busy("deletePreview") ||
+                        !draft.path.trim() ||
+                        (draft.operation === "rename" && !draft.newPath.trim()),
                       "primary",
                     ),
                     button("Cancel", { _tag: "Cancel" }),
@@ -462,6 +473,92 @@ export function view(model: Model, h: Html.HtmlBuilder<Message>): Html.Html {
                         : `Save changes to ${draft.path}.`,
                   ],
                 ),
+                draft.operation === "delete"
+                  ? h.div(
+                      [h.Class("delete-referrers")],
+                      [
+                        h.p(
+                          [h.Class(draft.referrers.length ? "missing" : "muted")],
+                          [
+                            draft.referrers.length
+                              ? "Deleting this file leaves links in these documents pointing to a missing file:"
+                              : "No referring documents were found in this bundle.",
+                          ],
+                        ),
+                        h.ul(
+                          [],
+                          draft.referrers.map((item) =>
+                            h.li(
+                              [],
+                              [
+                                link(item),
+                                h.small(
+                                  [h.Class("provenance")],
+                                  [` · ${item.bundle} / ${item.path}`],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    )
+                  : null,
+                draft.operation === "rename" && model.renamePreview
+                  ? h.div(
+                      [h.Class("rename-changes")],
+                      [
+                        h.p(
+                          [],
+                          [
+                            `${model.renamePreview.changes.length} affected files. Review every path below before confirming.`,
+                          ],
+                        ),
+                        ...model.renamePreview.changes.map((change) => {
+                          const diff = lineChanges(change.before, change.after);
+                          return h.details(
+                            [h.Open(true)],
+                            [
+                              h.summary([h.Class("provenance")], [change.path]),
+                              h.div(
+                                [h.Class("diff")],
+                                [
+                                  diff.removed.length
+                                    ? h.pre(
+                                        [h.Class("removed")],
+                                        [diff.removed.map((line) => `- ${line}`).join("\n")],
+                                      )
+                                    : null,
+                                  diff.added.length
+                                    ? h.pre(
+                                        [h.Class("added")],
+                                        [diff.added.map((line) => `+ ${line}`).join("\n")],
+                                      )
+                                    : null,
+                                ],
+                              ),
+                            ],
+                          );
+                        }),
+                        !draft.updateLinks && draft.referrers.length
+                          ? h.div(
+                              [],
+                              [
+                                h.p(
+                                  [h.Class("missing")],
+                                  [
+                                    "Links in these documents keep their existing targets and may become unavailable:",
+                                  ],
+                                ),
+                                h.ul(
+                                  [],
+                                  draft.referrers.map((item) => h.li([], [link(item)])),
+                                ),
+                              ],
+                            )
+                          : null,
+                      ],
+                    )
+                  : null,
                 draft.operation === "write" || draft.operation === "delete"
                   ? h.div(
                       [h.Class("diff")],
@@ -511,7 +608,9 @@ export function view(model: Model, h: Html.HtmlBuilder<Message>): Html.Html {
                             ? "Rename file"
                             : "Save file",
                       { _tag: "Save" },
-                      busy("mutation") || !!model.conflict,
+                      busy("mutation") ||
+                        !!model.conflict ||
+                        (draft.operation === "rename" && !model.renamePreview),
                       draft.operation === "delete" ? "danger" : "primary",
                     ),
                     button("Back to draft", { _tag: "ContinueDraft" }, busy("mutation")),

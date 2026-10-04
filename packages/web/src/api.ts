@@ -9,6 +9,7 @@ import type {
   MemoryContext,
   MutationResult,
   PullRequestResult,
+  RenamePreview,
   SearchResult,
   ValidationResult,
 } from "../../core/src/contracts.ts";
@@ -136,6 +137,16 @@ const schemas = {
     expiresAt: Schema.String,
     warnings: Schema.Array(Schema.String),
   }),
+  renamePreview: Schema.Struct({
+    version: Schema.Literal(1),
+    bundle: Schema.String,
+    path: Schema.String,
+    newPath: Schema.String,
+    previewHash: Schema.String,
+    changes: Schema.Array(
+      Schema.Struct({ path: Schema.String, before: Schema.String, after: Schema.String }),
+    ),
+  }),
   pr: Schema.Struct({
     version: Schema.Literal(1),
     url: Schema.String,
@@ -161,7 +172,8 @@ export interface Responses {
   validation: ValidationResult;
   mutation: MutationResult;
   status: GitStatus;
-  preview: GitPreview & { baseRef: string; repository: string };
+  preview: GitPreview;
+  renamePreview: RenamePreview;
   pr: PullRequestResult;
 }
 export class RequestError extends Error {

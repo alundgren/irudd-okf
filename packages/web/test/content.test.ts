@@ -10,6 +10,24 @@ describe("viewer content safety and bounds", () => {
       path: "facts/name.md",
       fragment: "details",
     });
+    expect(resolveLink("nested/", "repo", "index.md")).toEqual({
+      kind: "internal",
+      bundle: "repo",
+      path: "nested/index.md",
+      fragment: "",
+    });
+    expect(resolveLink("target.md?view=1#part", "repo", "rules/source.md")).toEqual({
+      kind: "internal",
+      bundle: "repo",
+      path: "rules/target.md",
+      fragment: "part",
+    });
+    expect(resolveLink("../nested/?view=1#part", "repo", "rules/source.md")).toEqual({
+      kind: "internal",
+      bundle: "repo",
+      path: "nested/index.md",
+      fragment: "part",
+    });
     expect(resolveLink("/index.md", "repo", "rules/test.md")).toEqual({
       kind: "internal",
       bundle: "repo",
