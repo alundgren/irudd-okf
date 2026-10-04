@@ -1,0 +1,39 @@
+{
+  "kind": "independent_bounded_offline_capture",
+  "no_auth_copy": true,
+  "no_inference": true,
+  "runtime": "codex-cli 0.160.0",
+  "wrapper_sha256": "efc150c8dab33518d230bbdf314015cd26139527d49b220928a3538cea4f88b4",
+  "evidence": [
+    {
+      "placement": "beginning",
+      "global_instruction_bytes": 32738,
+      "retained_concepts": 129,
+      "retained_archive_ids": 123,
+      "request_bytes": 85652,
+      "request_sha256": "bc3072eb4b308c41c824c79bea5fdd2b2561b0c0b0f7a1931888187906666c3f",
+      "instructions_sha256": "7ce490ad73a5e99ec3107ed290d662a8f18ef85e0ff2ac30dccb3a3630fe4140",
+      "runtime_exit": 1
+    },
+    {
+      "placement": "middle",
+      "global_instruction_bytes": 32677,
+      "retained_concepts": 131,
+      "retained_archive_ids": 131,
+      "request_bytes": 85573,
+      "request_sha256": "3dbe8c394e5a4ac464c007309e44a15c9fc9b0c19e0a446edc4e8246ad402509",
+      "instructions_sha256": "4835a16a9002b969586f6bde2870e642d57e85088efb77d0d85b0e5ffd5a1edd",
+      "runtime_exit": 1
+    },
+    {
+      "placement": "end",
+      "global_instruction_bytes": 32677,
+      "retained_concepts": 131,
+      "retained_archive_ids": 131,
+      "request_bytes": 85543,
+      "request_sha256": "78397fd5af973e04a4b48e499736c3cecb7be02bb11fca0c381157bef0579142",
+      "instructions_sha256": "4835a16a9002b969586f6bde2870e642d57e85088efb77d0d85b0e5ffd5a1edd",
+      "runtime_exit": 1
+    }
+  ]
+}

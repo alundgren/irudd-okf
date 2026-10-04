@@ -1,0 +1,686 @@
+[
+  {
+    "method": "none",
+    "count": 5000,
+    "scheduled": 12,
+    "attempted": 12,
+    "completed": 12,
+    "correct": 9,
+    "median_seconds": 39.126635629000084,
+    "median_total_tokens": 44684,
+    "median_success_seconds": 35.96644482300012,
+    "median_success_tokens": 44331,
+    "failures": [],
+    "task_results": [
+      {
+        "id": "usage",
+        "attempted": 3,
+        "correct": 0
+      },
+      {
+        "id": "draft",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "exports",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "pagination",
+        "attempted": 3,
+        "correct": 3
+      }
+    ]
+  },
+  {
+    "method": "oracle",
+    "count": 100,
+    "scheduled": 12,
+    "attempted": 12,
+    "completed": 12,
+    "correct": 12,
+    "median_seconds": 34.28894768199994,
+    "median_total_tokens": 44682,
+    "median_success_seconds": 34.28894768199994,
+    "median_success_tokens": 44682,
+    "failures": [],
+    "task_results": [
+      {
+        "id": "usage",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "draft",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "exports",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "pagination",
+        "attempted": 3,
+        "correct": 3
+      }
+    ]
+  },
+  {
+    "method": "flat",
+    "count": 5000,
+    "scheduled": 12,
+    "attempted": 12,
+    "completed": 0,
+    "correct": 0,
+    "median_seconds": null,
+    "median_total_tokens": null,
+    "median_success_seconds": null,
+    "median_success_tokens": null,
+    "failures": [
+      {
+        "id": "cell-0002",
+        "error": "Runtime did not complete cleanly: exit=null, timeout=true, completed=false."
+      },
+      {
+        "id": "cell-0025",
+        "error": "Runtime did not complete cleanly: exit=null, timeout=true, completed=false."
+      },
+      {
+        "id": "cell-0040",
+        "error": "Runtime did not complete cleanly: exit=null, timeout=true, completed=false."
+      },
+      {
+        "id": "cell-0062",
+        "error": "Runtime did not complete cleanly: exit=null, timeout=true, completed=false."
+      },
+      {
+        "id": "cell-0088",
+        "error": "Runtime did not complete cleanly: exit=null, timeout=true, completed=false."
+      },
+      {
+        "id": "cell-0100",
+        "error": "Runtime did not complete cleanly: exit=null, timeout=true, completed=false."
+      },
+      {
+        "id": "cell-0123",
+        "error": "Runtime did not complete cleanly: exit=null, timeout=true, completed=false."
+      },
+      {
+        "id": "cell-0136",
+        "error": "Runtime did not complete cleanly: exit=null, timeout=true, completed=false."
+      },
+      {
+        "id": "cell-0154",
+        "error": "Runtime did not complete cleanly: exit=null, timeout=true, completed=false."
+      },
+      {
+        "id": "cell-0162",
+        "error": "Runtime did not complete cleanly: exit=null, timeout=true, completed=false."
+      },
+      {
+        "id": "cell-0190",
+        "error": "Runtime did not complete cleanly: exit=null, timeout=true, completed=false."
+      },
+      {
+        "id": "cell-0198",
+        "error": "Runtime did not complete cleanly: exit=null, timeout=true, completed=false."
+      }
+    ],
+    "task_results": [
+      {
+        "id": "usage",
+        "attempted": 3,
+        "correct": 0
+      },
+      {
+        "id": "draft",
+        "attempted": 3,
+        "correct": 0
+      },
+      {
+        "id": "exports",
+        "attempted": 3,
+        "correct": 0
+      },
+      {
+        "id": "pagination",
+        "attempted": 3,
+        "correct": 0
+      }
+    ]
+  },
+  {
+    "method": "global",
+    "count": 100,
+    "scheduled": 12,
+    "attempted": 12,
+    "completed": 12,
+    "correct": 12,
+    "median_seconds": 53.16228422300017,
+    "median_total_tokens": 65368,
+    "median_success_seconds": 53.16228422300017,
+    "median_success_tokens": 65368,
+    "failures": [],
+    "task_results": [
+      {
+        "id": "usage",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "draft",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "exports",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "pagination",
+        "attempted": 3,
+        "correct": 3
+      }
+    ]
+  },
+  {
+    "method": "flat",
+    "count": 100,
+    "scheduled": 12,
+    "attempted": 12,
+    "completed": 12,
+    "correct": 12,
+    "median_seconds": 36.45467643800005,
+    "median_total_tokens": 66940.5,
+    "median_success_seconds": 36.45467643800005,
+    "median_success_tokens": 66940.5,
+    "failures": [],
+    "task_results": [
+      {
+        "id": "usage",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "draft",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "exports",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "pagination",
+        "attempted": 3,
+        "correct": 3
+      }
+    ]
+  },
+  {
+    "method": "none",
+    "count": 100,
+    "scheduled": 12,
+    "attempted": 12,
+    "completed": 12,
+    "correct": 9,
+    "median_seconds": 38.36896887700027,
+    "median_total_tokens": 44449.5,
+    "median_success_seconds": 36.35232314200001,
+    "median_success_tokens": 44246,
+    "failures": [],
+    "task_results": [
+      {
+        "id": "usage",
+        "attempted": 3,
+        "correct": 0
+      },
+      {
+        "id": "draft",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "exports",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "pagination",
+        "attempted": 3,
+        "correct": 3
+      }
+    ]
+  },
+  {
+    "method": "suggest",
+    "count": 5000,
+    "scheduled": 12,
+    "attempted": 12,
+    "completed": 12,
+    "correct": 12,
+    "median_seconds": 45.755245387000265,
+    "median_total_tokens": 46130,
+    "median_success_seconds": 45.755245387000265,
+    "median_success_tokens": 46130,
+    "failures": [],
+    "task_results": [
+      {
+        "id": "usage",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "draft",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "exports",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "pagination",
+        "attempted": 3,
+        "correct": 3
+      }
+    ]
+  },
+  {
+    "method": "grouped",
+    "count": 5000,
+    "scheduled": 12,
+    "attempted": 12,
+    "completed": 12,
+    "correct": 12,
+    "median_seconds": 44.27547510450054,
+    "median_total_tokens": 67600,
+    "median_success_seconds": 44.27547510450054,
+    "median_success_tokens": 67600,
+    "failures": [],
+    "task_results": [
+      {
+        "id": "usage",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "draft",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "exports",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "pagination",
+        "attempted": 3,
+        "correct": 3
+      }
+    ]
+  },
+  {
+    "method": "search",
+    "count": 5000,
+    "scheduled": 12,
+    "attempted": 12,
+    "completed": 12,
+    "correct": 12,
+    "median_seconds": 47.73823111100006,
+    "median_total_tokens": 69754,
+    "median_success_seconds": 47.73823111100006,
+    "median_success_tokens": 69754,
+    "failures": [],
+    "task_results": [
+      {
+        "id": "usage",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "draft",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "exports",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "pagination",
+        "attempted": 3,
+        "correct": 3
+      }
+    ]
+  },
+  {
+    "method": "grouped",
+    "count": 100,
+    "scheduled": 12,
+    "attempted": 12,
+    "completed": 12,
+    "correct": 12,
+    "median_seconds": 40.829905278000226,
+    "median_total_tokens": 51120,
+    "median_success_seconds": 40.829905278000226,
+    "median_success_tokens": 51120,
+    "failures": [],
+    "task_results": [
+      {
+        "id": "usage",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "draft",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "exports",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "pagination",
+        "attempted": 3,
+        "correct": 3
+      }
+    ]
+  },
+  {
+    "method": "symlink",
+    "count": 100,
+    "scheduled": 12,
+    "attempted": 12,
+    "completed": 12,
+    "correct": 12,
+    "median_seconds": 44.00448098749993,
+    "median_total_tokens": 49915,
+    "median_success_seconds": 44.00448098749993,
+    "median_success_tokens": 49915,
+    "failures": [],
+    "task_results": [
+      {
+        "id": "usage",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "draft",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "exports",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "pagination",
+        "attempted": 3,
+        "correct": 3
+      }
+    ]
+  },
+  {
+    "method": "skill",
+    "count": 100,
+    "scheduled": 12,
+    "attempted": 12,
+    "completed": 12,
+    "correct": 11,
+    "median_seconds": 43.452100465500024,
+    "median_total_tokens": 45121,
+    "median_success_seconds": 40.56764268400008,
+    "median_success_tokens": 45052,
+    "failures": [],
+    "task_results": [
+      {
+        "id": "usage",
+        "attempted": 3,
+        "correct": 2
+      },
+      {
+        "id": "draft",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "exports",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "pagination",
+        "attempted": 3,
+        "correct": 3
+      }
+    ]
+  },
+  {
+    "method": "symlink",
+    "count": 5000,
+    "scheduled": 12,
+    "attempted": 12,
+    "completed": 12,
+    "correct": 12,
+    "median_seconds": 45.078626551499994,
+    "median_total_tokens": 66078,
+    "median_success_seconds": 45.078626551499994,
+    "median_success_tokens": 66078,
+    "failures": [],
+    "task_results": [
+      {
+        "id": "usage",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "draft",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "exports",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "pagination",
+        "attempted": 3,
+        "correct": 3
+      }
+    ]
+  },
+  {
+    "method": "global",
+    "count": 5000,
+    "scheduled": 12,
+    "attempted": 12,
+    "completed": 12,
+    "correct": 12,
+    "median_seconds": 59.51547228500003,
+    "median_total_tokens": 92968.5,
+    "median_success_seconds": 59.51547228500003,
+    "median_success_tokens": 92968.5,
+    "failures": [],
+    "task_results": [
+      {
+        "id": "usage",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "draft",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "exports",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "pagination",
+        "attempted": 3,
+        "correct": 3
+      }
+    ]
+  },
+  {
+    "method": "search",
+    "count": 100,
+    "scheduled": 12,
+    "attempted": 12,
+    "completed": 12,
+    "correct": 12,
+    "median_seconds": 40.68487585250032,
+    "median_total_tokens": 53080.5,
+    "median_success_seconds": 40.68487585250032,
+    "median_success_tokens": 53080.5,
+    "failures": [],
+    "task_results": [
+      {
+        "id": "usage",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "draft",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "exports",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "pagination",
+        "attempted": 3,
+        "correct": 3
+      }
+    ]
+  },
+  {
+    "method": "skill",
+    "count": 5000,
+    "scheduled": 12,
+    "attempted": 12,
+    "completed": 11,
+    "correct": 9,
+    "median_seconds": 46.182697334000025,
+    "median_total_tokens": 45977,
+    "median_success_seconds": 41.99682134900009,
+    "median_success_tokens": 45977,
+    "failures": [
+      {
+        "id": "cell-0109",
+        "error": "Runtime did not complete cleanly: exit=null, timeout=true, completed=false."
+      }
+    ],
+    "task_results": [
+      {
+        "id": "usage",
+        "attempted": 3,
+        "correct": 1
+      },
+      {
+        "id": "draft",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "exports",
+        "attempted": 3,
+        "correct": 2
+      },
+      {
+        "id": "pagination",
+        "attempted": 3,
+        "correct": 3
+      }
+    ]
+  },
+  {
+    "method": "oracle",
+    "count": 5000,
+    "scheduled": 12,
+    "attempted": 12,
+    "completed": 12,
+    "correct": 12,
+    "median_seconds": 38.83744307449996,
+    "median_total_tokens": 44757.5,
+    "median_success_seconds": 38.83744307449996,
+    "median_success_tokens": 44757.5,
+    "failures": [],
+    "task_results": [
+      {
+        "id": "usage",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "draft",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "exports",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "pagination",
+        "attempted": 3,
+        "correct": 3
+      }
+    ]
+  },
+  {
+    "method": "suggest",
+    "count": 100,
+    "scheduled": 12,
+    "attempted": 12,
+    "completed": 12,
+    "correct": 12,
+    "median_seconds": 46.22518236549967,
+    "median_total_tokens": 46130,
+    "median_success_seconds": 46.22518236549967,
+    "median_success_tokens": 46130,
+    "failures": [],
+    "task_results": [
+      {
+        "id": "usage",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "draft",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "exports",
+        "attempted": 3,
+        "correct": 3
+      },
+      {
+        "id": "pagination",
+        "attempted": 3,
+        "correct": 3
+      }
+    ]
+  }
+]

@@ -1,0 +1,31 @@
+{
+  "checked_at": "2026-10-04T18:28:52.834858+00:00",
+  "initial_receipt": {
+    "id": "okf-personal-memory-20261004-1ad354e5",
+    "queued": true,
+    "expiresAt": "2026-10-06T18:28:29.138Z"
+  },
+  "desktop": {
+    "name": "personal-memory-retrieval-20261004-1ad354e5",
+    "title": "Personal memory retrieval experiment",
+    "kind": "html",
+    "blob": "eafb42507bc38ae8f865170a239e73009eb4b9f4747e3e2759be2e7735d36816",
+    "fileName": "report.html",
+    "mediaType": "text/html",
+    "source": {
+      "host": "cloudbox",
+      "repo": "/home/dev/code/irudd-okf",
+      "worktree": "/home/dev/.t3/worktrees/irudd-okf/t3code-1ad354e5",
+      "branch": "t3code/test-agent-okf-usage",
+      "cwd": "/home/dev/.t3/worktrees/irudd-okf/t3code-1ad354e5"
+    },
+    "id": "okf-personal-memory-20261004-1ad354e5",
+    "revision": 74,
+    "createdAt": "2026-10-04T17:58:50.806Z",
+    "updatedAt": "2026-10-04T18:28:29.756Z",
+    "size": 415097
+  },
+  "report_sha256": "eafb42507bc38ae8f865170a239e73009eb4b9f4747e3e2759be2e7735d36816",
+  "content_matches": true,
+  "queue_empty": true
+}

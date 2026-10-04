@@ -195,10 +195,11 @@ test('flat overflow keeps original facts while reporting expected loading separa
 
 test('timeout captures partial streams and kills a process group that ignores SIGTERM', async () => {
   const source = `import {spawn} from 'node:child_process'; process.on('SIGTERM',()=>{}); console.log('parent-ready'); console.error('partial-error'); const child=spawn(process.execPath,['-e',"process.on('SIGTERM',()=>{});setInterval(()=>{},1000)"],{stdio:'inherit'}); console.log('descendant-pid:'+child.pid);setInterval(()=>{},1000);`;
-  const result = await command(process.execPath, ['--input-type=module', '-e', source], { timeoutMs: 150, killGraceMs: 50 });
+  // Allow cold Node startup under the full suite before testing the installed signal handler.
+  const result = await command(process.execPath, ['--input-type=module', '-e', source], { timeoutMs: 2000, killGraceMs: 50 });
   assert.equal(result.timed_out, true); assert.equal(result.signal, 'SIGKILL');
   assert.equal(result.stdout.includes('parent-ready'), true); assert.equal(result.stderr.includes('partial-error'), true);
-  assert.equal(result.wall_time_ms < 700, true);
+  assert.equal(result.wall_time_ms < 5000, true);
   if (process.platform === 'linux') {
     const pid = /descendant-pid:(\d+)/.exec(result.stdout)[1];
     const state = await fs.readFile(`/proc/${pid}/stat`, 'utf8').catch(error => error.code === 'ENOENT' ? null : Promise.reject(error));
@@ -245,7 +246,7 @@ test('adapter exits, invalid JSON, spawn failure and timeout preserve all attemp
     const adapter = path.join(dir, `${kind}.mjs`);
     if (source) { await fs.writeFile(adapter, '#!/usr/bin/env node\n' + source + '\n'); await fs.chmod(adapter, 0o700); }
     const artifacts = path.join(dir, `artifacts-${kind}`);
-    const result = await run({ workspace, evaluator, artifacts, adapter, taskIds: ['architecture'], timeoutMs: kind === 'timeout' ? 150 : 1000 });
+    const result = await run({ workspace, evaluator, artifacts, adapter, taskIds: ['architecture'], timeoutMs: 2000 });
     assert.equal(result.length, 2); assert.equal(result.every(r => r.status === 'failed' && r.machine_grade.coverage === null), true);
     assert.equal((await readJson(path.join(artifacts, 'results.json'))).length, 2);
     for (const r of result) {
@@ -255,7 +256,7 @@ test('adapter exits, invalid JSON, spawn failure and timeout preserve all attemp
       assert.equal(await fs.stat(path.join(cell, 'adapter-stderr.txt')).then(() => true), true);
       assert.equal(r.failure !== null, true);
       if (kind === 'exit') { assert.equal(r.exit_code, 7); assert.equal((await fs.readFile(path.join(cell, 'adapter-stderr.txt'), 'utf8')).includes('partial-error'), true); }
-      if (kind === 'timeout') { assert.equal(r.timed_out, true); assert.equal(r.signal, 'SIGKILL'); }
+      if (kind === 'timeout') { assert.equal(r.timed_out, true); assert.equal(r.signal, 'SIGKILL'); assert.equal((await fs.readFile(path.join(cell, 'adapter-stdout.txt'), 'utf8')).includes('partial-output'), true); }
     }
   }
 });
