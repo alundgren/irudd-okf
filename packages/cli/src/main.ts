@@ -11,6 +11,7 @@ import { GitMemory } from './git.ts';
 import { runProcess } from './process.ts';
 import { serve } from './server.ts';
 import { installSkill } from './skill.ts';
+import { checkUpgrade, upgrade } from './upgrade.ts';
 
 const bool = (name: string) => Flag.Boolean(name).pipe(Flag.withDefault(false));
 const opt = (name: string) => Flag.String(name).pipe(Flag.optional);
@@ -59,13 +60,14 @@ const cliCommand = Command.make('cli').pipe(Command.withSubcommands([
   Command.make('schema', { command: Argument.String('command').pipe(Argument.variadic({ min: 1 })) }, args => { const name = args.command.join(' '); const item = commands.find(value => value.command === name); return item ? print({ version: 1, ...item }) : Effect.fail(new OkfError('COMMAND_NOT_FOUND', `Unknown command ${name}. Use cli search.`)); }),
 ]));
 const skillCommand = Command.make('skill').pipe(Command.withSubcommands([Command.make('install', { directory: Argument.String('directory') }, args => installSkill(args.directory).pipe(Effect.flatMap(print)))]));
+const upgradeCommand = Command.make('upgrade', { check: bool('check') }, args => (args.check ? checkUpgrade() : upgrade()).pipe(Effect.flatMap(print)));
 const licensesCommand = Command.make('licenses', {}, () => Effect.tryPromise({ try: async () => ({ version: 1, text: isSea() ? getAsset('licenses.txt', 'utf8') : await readFile('THIRD_PARTY_NOTICES.txt', 'utf8') }), catch: error => new OkfError('FILE_READ_FAILED', 'Could not read included license notices.', { cause: String(error) }) }).pipe(Effect.flatMap(print)));
 const doctorCommand = Command.make('doctor', {}, () => withStore(store => Effect.gen(function* () {
   const git = yield* runProcess('git', ['--version'], store.context.cwd).pipe(Effect.catch(() => Effect.succeed(null)));
   const gh = yield* runProcess('gh', ['--version'], store.context.cwd).pipe(Effect.catch(() => Effect.succeed(null)));
   yield* print({ version: 1, productVersion: VERSION, node: process.version, nativeExecutable: isSea(), context: store.context, git: git?.exitCode === 0, gh: gh?.exitCode === 0, validation: yield* store.validate() });
 })));
-export const app = root.pipe(Command.withSubcommands([contextCommand, initCommand, bundleCommand, searchCommand, readCommand, indexCommand, writeCommand, deleteCommand, renameCommand, validateCommand(false), validateCommand(true), graphCommand, serveCommand, gitCommand, cliCommand, skillCommand, licensesCommand, doctorCommand]));
+export const app = root.pipe(Command.withSubcommands([contextCommand, initCommand, bundleCommand, searchCommand, readCommand, indexCommand, writeCommand, deleteCommand, renameCommand, validateCommand(false), validateCommand(true), graphCommand, serveCommand, gitCommand, cliCommand, skillCommand, upgradeCommand, licensesCommand, doctorCommand]));
 export const renderError = (error: unknown) => Effect.sync(() => {
   if (CliError.isCliError(error) && error._tag === 'ShowHelp') {
     if (error.errors.length === 0) return;
