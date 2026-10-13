@@ -96,7 +96,7 @@ export interface MemoryPolicy {
 }
 export interface ProfileResult { version: 1; bundle: string; mode: 'generic' | 'memory' | 'invalid'; policy: MemoryPolicy | null; diagnostics: Diagnostic[] }
 export interface NamespaceResult { version: 1; bundle: string; namespaces: string[]; shared: 'shared'; mode: ProfileResult['mode'] }
-export interface BootstrapResult { version: 1; bundle: string; path: 'memory-policy.md' | 'index.md'; raw: string | null; profile: ProfileResult }
+export interface BootstrapResult { version: 1; bundle: string; path: string; raw: string | null; profile: ProfileResult }
 export interface RecallSelection { namespaces?: string[]; includeExcluded?: boolean }
 export interface SearchOptions extends RecallSelection { bundle?: string; limit?: number; offset?: number }
 export interface GraphOptions extends RecallSelection { bundle?: string; path?: string; depth?: number; limit?: number }

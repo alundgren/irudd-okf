@@ -2,12 +2,12 @@ import { afterEach, describe, expect, it } from 'vite-plus/test';
 import * as fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { Effect } from 'effect';
 import { createStore, contentDigest, initializeBundle, type MemoryContext, type StoreOptions, type MemoryKind, type MaintenanceProposal, type MemoryPolicy } from '../src/index.ts';
 import { DEFAULT_MEMORY_POLICY, policyRaw, patchMetadata, isMemoryPolicyPath } from '../src/memory.ts';
-import { hash } from '../src/files.ts';
+import { hash, requireCanonicalComponent } from '../src/files.ts';
 import { previewDigest } from '../src/maintenance.ts';
 import { decode, TemplateSchema } from '../src/schemas.ts';
 
@@ -327,13 +327,30 @@ describe('migration preservation and domain request validation', () => {
     expect(isMemoryPolicyPath('MEMORY-POLICY.md','linux')).toBe(false);
     expect(isMemoryPolicyPath('topics/MEMORY-POLICY.md','win32')).toBe(false);
     expect(isMemoryPolicyPath('memory-policy.md','linux')).toBe(true);
+    expect(() => requireCanonicalComponent('C:\\bundle\\memory~1.md','C:\\bundle\\memory-policy.md','win32')).toThrow();
+    expect(() => requireCanonicalComponent('C:\\bundle\\MEMORY-POLICY.md','C:\\bundle\\memory-policy.md','win32')).not.toThrow();
   });
   it.skipIf(!['win32','darwin'].includes(process.platform))('protects the initialized policy through filesystem case aliases', async () => {
     const f=await fixture(); const policy=await run(f.store.read('repo','memory-policy.md'));
-    try { await fs.access(path.join(f.bundle,'MEMORY-POLICY.md')); } catch { return; }
+    let resolvesAlias=true;
+    try { await fs.access(path.join(f.bundle,'MEMORY-POLICY.md')); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; resolvesAlias=false; }
     const request={bundle:'repo',path:'MEMORY-POLICY.md',newPath:'ordinary.md',expectedHash:policy.hash,updateLinks:true};
-    for (const effect of [f.store.previewRename(request),f.store.rename(request),f.store.remove({bundle:'repo',path:request.path,expectedHash:policy.hash}),f.store.previewMaintenance(proposal([{path:request.path,expectedHash:policy.hash,raw:null}]))]) await expect(run(effect as Effect.Effect<unknown,unknown>)).rejects.toMatchObject({code:'MEMORY_POLICY_PROTECTED'});
+    if (resolvesAlias) for (const effect of [f.store.previewRename(request),f.store.rename(request),f.store.remove({bundle:'repo',path:request.path,expectedHash:policy.hash}),f.store.previewMaintenance(proposal([{path:request.path,expectedHash:policy.hash,raw:null}]))]) await expect(run(effect as Effect.Effect<unknown,unknown>)).rejects.toMatchObject({code:'MEMORY_POLICY_PROTECTED'});
     expect((await run(f.store.profile('repo'))).mode).toBe('memory');
+    expect(await fs.readFile(path.join(f.bundle,'memory-policy.md'),'utf8')).toBe(policy.raw);
+    await fs.rename(path.join(f.bundle,'memory-policy.md'),path.join(f.bundle,'MEMORY-POLICY.md'));
+    const bootstrap=await run(f.store.bootstrap('repo'));
+    expect(bootstrap.path).toBe('MEMORY-POLICY.md'); expect(bootstrap.raw).toBe(policy.raw);
+  });
+  it.skipIf(process.platform !== 'win32')('rejects a native short policy alias when the volume provides one', async () => {
+    const f=await fixture(); const policy=await run(f.store.read('repo','memory-policy.md'));
+    const script=`Add-Type -TypeDefinition 'using System; using System.Text; using System.Runtime.InteropServices; public class PolicyShortPath { [DllImport("kernel32.dll", CharSet=CharSet.Unicode)] public static extern uint GetShortPathName(string path, StringBuilder output, uint size); }'; $output = New-Object System.Text.StringBuilder 4096; $length = [PolicyShortPath]::GetShortPathName($env:OKF_POLICY_TEST_FILE, $output, 4096); if ($length -gt 0) { $output.ToString() }`;
+    const short=execFileSync('powershell.exe',['-NoProfile','-NonInteractive','-Command',script],{encoding:'utf8',env:{...process.env,OKF_POLICY_TEST_FILE:path.join(f.bundle,'memory-policy.md')}}).trim();
+    const alias=path.win32.basename(short).toLowerCase();
+    if (!alias || alias==='memory-policy.md') { console.info('Native short policy alias unavailable on this volume.'); return; }
+    const request={bundle:'repo',path:alias,newPath:'ordinary.md',expectedHash:policy.hash,updateLinks:true};
+    await expect(run(f.store.previewRename(request))).rejects.toMatchObject({code:'UNSAFE_PATH'});
+    await expect(run(f.store.rename(request))).rejects.toMatchObject({code:'UNSAFE_PATH'});
     expect(await fs.readFile(path.join(f.bundle,'memory-policy.md'),'utf8')).toBe(policy.raw);
   });
   it('emits unresolved decisions without fabricating classification, producer or evidence and preserves raw malformed/unknown YAML', async () => {

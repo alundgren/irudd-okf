@@ -36,7 +36,8 @@ export function attachMemoryOperations(store: Store, runtime: MemoryOperations):
     const result = await profile(bundle);
     const documents = await runtime.load(bundle, false);
     const file = result.mode === 'generic' ? 'index.md' : 'memory-policy.md';
-    return { version: 1, bundle, path: file, raw: documents.find(item => item.path === file)?.raw ?? null, profile: result };
+    const concept = documents.find(item => result.mode === 'generic' ? item.path === file : isMemoryPolicyPath(item.path));
+    return { version: 1, bundle, path: concept?.path ?? file, raw: concept?.raw ?? null, profile: result };
   });
   store.template = request => operation(async () => {
     decode(TemplateSchema, request);
