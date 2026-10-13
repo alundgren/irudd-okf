@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import * as fs from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join, sep } from 'node:path';
 import { tmpdir } from 'node:os';
 import { Effect } from 'effect';
 import { installSkill, skillNames } from '../src/skill.ts';
@@ -8,6 +8,7 @@ import { installSkill, skillNames } from '../src/skill.ts';
 vi.mock('node:fs/promises', async importOriginal => ({ ...await importOriginal<typeof import('node:fs/promises')>() }));
 const directories: string[] = [];
 const run = Effect.runPromise;
+const directoryLink = (target: string, destination: string) => fs.symlink(target, destination, process.platform === 'win32' ? 'junction' : 'dir');
 const fixture = async () => {
   const root = await fs.realpath(await fs.mkdtemp(join(tmpdir(), 'okf-skill-')));
   directories.push(root);
@@ -36,7 +37,7 @@ describe('portable skill installation', () => {
     const original = fs.readFile;
     vi.spyOn(fs, 'readFile').mockImplementation(async (...args: Parameters<typeof fs.readFile>) => {
       const file = String(args[0]);
-      if (file.includes(`/skills/${name}/`)) return file.endsWith('SKILL.md') ? `name: ${name}\n` : 'Workflow reference.\n';
+      if (file.includes(`${sep}skills${sep}${name}${sep}`)) return file.endsWith('SKILL.md') ? `name: ${name}\n` : 'Workflow reference.\n';
       return original(...args);
     });
     const result = await run(installSkill(root, name));
@@ -50,9 +51,9 @@ describe('portable skill installation', () => {
     const destination = join(root, 'existing');
     await fs.mkdir(destination);
     await fs.writeFile(join(destination, 'keep.md'), 'Keep.');
-    await fs.symlink(destination, join(root, 'okf'));
+    await directoryLink(destination, join(root, 'okf'));
     await expect(run(installSkill(root))).rejects.toMatchObject({ code: 'SKILL_INSTALL_FAILED' });
-    await fs.symlink(destination, join(root, 'linked-parent'));
+    await directoryLink(destination, join(root, 'linked-parent'));
     await expect(run(installSkill(join(root, 'linked-parent', 'nested')))).rejects.toMatchObject({ code: 'SKILL_INSTALL_FAILED' });
     expect(await fs.readdir(destination)).toEqual(['keep.md']);
   });
@@ -61,7 +62,7 @@ describe('portable skill installation', () => {
     const root = await fixture();
     const original = fs.writeFile;
     vi.spyOn(fs, 'writeFile').mockImplementation(async (...args: Parameters<typeof fs.writeFile>) => {
-      if (String(args[0]).endsWith('references/usage.md')) throw new Error('Disk unavailable.');
+      if (String(args[0]).endsWith(join('references', 'usage.md'))) throw new Error('Disk unavailable.');
       return original(...args);
     });
     await expect(run(installSkill(root))).rejects.toMatchObject({ code: 'SKILL_INSTALL_FAILED' });
@@ -77,7 +78,7 @@ describe('portable skill installation', () => {
     const original = fs.mkdir;
     vi.spyOn(fs, 'mkdir').mockImplementation(async (...args: Parameters<typeof fs.mkdir>) => {
       const result = await original(...args);
-      if (String(args[0]) === target) { await fs.rename(target, join(root, 'displaced')); await fs.symlink(foreign, target); }
+      if (String(args[0]) === target) { await fs.rename(target, join(root, 'displaced')); await directoryLink(foreign, target); }
       return result;
     });
     await expect(run(installSkill(root))).rejects.toMatchObject({ code: 'SKILL_INSTALL_FAILED' });
@@ -93,9 +94,9 @@ describe('portable skill installation', () => {
     const original = fs.mkdir;
     vi.spyOn(fs, 'mkdir').mockImplementation(async (...args: Parameters<typeof fs.mkdir>) => {
       const path = String(args[0]);
-      if (path.endsWith('/references') && dirname(path).includes('.okf-skill-install-')) {
+      if (basename(path) === 'references' && basename(dirname(path)).startsWith('.okf-skill-install-')) {
         await fs.rename(dirname(path), join(root, 'displaced'));
-        await fs.symlink(foreign, dirname(path));
+        await directoryLink(foreign, dirname(path));
       }
       return original(...args);
     });
@@ -110,7 +111,7 @@ describe('portable skill installation', () => {
     const root = await fixture();
     const original = fs.writeFile;
     vi.spyOn(fs, 'writeFile').mockImplementation(async (...args: Parameters<typeof fs.writeFile>) => {
-      if (String(args[0]).endsWith('references/usage.md')) {
+      if (String(args[0]).endsWith(join('references', 'usage.md'))) {
         await original(join(dirname(dirname(String(args[0]))), 'foreign.md'), 'Foreign content.');
       }
       return original(...args);

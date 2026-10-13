@@ -6,9 +6,9 @@ import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { resolve } from 'node:path';
 import { getAsset, isSea } from 'node:sea';
-import { OkfError, type ApiError, type DeleteRequest, type RenameRequest, type Store, type WriteRequest } from '../../core/src/contracts.ts';
+import { OkfError, type ApiError, type Store } from '../../core/src/contracts.ts';
 import { GitMemory } from './git.ts';
-import { ApplySchema, decode, LifecycleSchema, MigrationSchema, ProposalSchema, RecoverySchema, ReviewSchema, TaskRequestSchema, TemplateSchema, VerifySchema } from '../../core/src/schemas.ts';
+import { ApplySchema, decode, DeleteSchema, LifecycleSchema, MigrationSchema, ProposalSchema, RecoverySchema, RenameSchema, ReviewSchema, TaskRequestSchema, TemplateSchema, VerifySchema, WriteSchema } from '../../core/src/schemas.ts';
 
 const headers = { 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer', 'x-frame-options': 'DENY', 'content-security-policy': "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'" };
 const response = (data: unknown, status = 200) => HttpServerResponse.jsonUnsafe(data, { status, headers });
@@ -22,7 +22,6 @@ const object = (value: unknown): Record<string, unknown> => {
   return value as Record<string, unknown>;
 };
 const string = (value: unknown, field: string) => { if (typeof value !== 'string') throw new OkfError('INVALID_INPUT', `${field} must be a string.`); return value; };
-const boolean = (value: unknown, field: string) => { if (typeof value !== 'boolean') throw new OkfError('INVALID_INPUT', `${field} must be a boolean.`); return value; };
 const number = (value: string | null, fallback: number) => { const n = value === null ? fallback : Number(value); if (!Number.isInteger(n)) throw new OkfError('INVALID_INPUT', 'An integer query parameter is required.'); return n; };
 
 export const createRoutes = (store: Store, capability: string, html: string, git = new GitMemory(store.context)) => {
@@ -70,19 +69,18 @@ export const createRoutes = (store: Store, capability: string, html: string, git
     const raw = yield* request.text;
     if (Buffer.byteLength(raw) > 2_000_000) return errorResponse(new OkfError('INVALID_INPUT', 'Request body exceeds 2 MB.'));
     const data = object(JSON.parse(raw));
-    const mutation = () => ({ bundle: string(data.bundle, 'bundle'), path: string(data.path, 'path'), ...(data.authorizePersonal === undefined ? {} : { authorizePersonal: boolean(data.authorizePersonal, 'authorizePersonal') }) });
     switch (`${request.method} ${url.pathname}`) {
       case 'POST /api/concept': {
-        const write: WriteRequest = { ...mutation(), raw: string(data.raw, 'raw'), expectedHash: data.expectedHash === null ? null : string(data.expectedHash, 'expectedHash'), ...(data.namespace === undefined ? {} : { namespace: string(data.namespace, 'namespace') }) };
+        const write = decode(WriteSchema, data, 'INVALID_INPUT');
         return response(yield* store.save(write));
       }
       case 'DELETE /api/concept': {
-        const remove: DeleteRequest = { ...mutation(), expectedHash: string(data.expectedHash, 'expectedHash') };
+        const remove = decode(DeleteSchema, data, 'INVALID_INPUT');
         return response(yield* store.remove(remove));
       }
       case 'POST /api/rename/preview':
       case 'POST /api/rename': {
-        const rename: RenameRequest = { ...mutation(), expectedHash: string(data.expectedHash, 'expectedHash'), newPath: string(data.newPath, 'newPath'), ...(data.updateLinks === undefined ? {} : { updateLinks: boolean(data.updateLinks, 'updateLinks') }), ...(data.previewHash === undefined ? {} : { previewHash: string(data.previewHash, 'previewHash') }) };
+        const rename = decode(RenameSchema, data, 'INVALID_INPUT');
         if (url.pathname.endsWith('/preview')) return response(yield* store.previewRename(rename));
         if (!rename.previewHash) return errorResponse(new OkfError('INVALID_INPUT', 'Review the affected files before confirming a rename.'));
         return response(yield* store.rename(rename));

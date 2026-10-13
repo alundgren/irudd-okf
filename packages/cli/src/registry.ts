@@ -75,7 +75,7 @@ export const commands: CommandDescription[] = [
   entry('doctor', 'Check runtime, active files and Git/gh availability.', 'doctor', {}, 'DoctorResult'),
   entry('licenses', 'Read included dependency and Node runtime license notices.', 'licenses', {}, '{version,text}'),
   entry('upgrade', 'Check main without changing the installation, or rebuild and install an update. Requires git; installation also requires vp.', 'upgrade [--check]', { check: { type: 'boolean', default: false, description: 'Report available updates without changing the installation or source clone.' } }, 'UpgradeCheckResult with --check; UpgradeResult otherwise', true),
-].map(item => ({ ...item, input: { ...item.input, required: required[item.command] ?? [] }, ...(fileSchemas[item.command] ? { fileInput: Schema.toJsonSchemaDocument(fileSchemas[item.command]) } : {}) }));
+].map(item => ({ ...item, input: { ...item.input, required: required[item.command] ?? [] }, ...(fileSchemas[item.command] ? { fileInput: Schema.toJsonSchemaDocument(fileSchemas[item.command], { onExcessProperty: 'error' }) } : {}) }));
 export const discover = (query: string) => {
   const terms = query.toLowerCase().match(/[a-z0-9]+/g) ?? [];
   return commands.map(item => ({ item, score: terms.reduce((score, term) => score + (item.command.includes(term) ? 5 : 0) + (item.description.toLowerCase().includes(term) ? 1 : 0), 0) }))

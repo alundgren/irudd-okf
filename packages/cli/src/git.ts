@@ -12,7 +12,10 @@ const git = (cwd: string, ...args: string[]) => call('git', ['-c', 'core.hooksPa
 const safeOperation = <A>(run: () => Promise<A>): Operation<A> => Effect.tryPromise({ try: run, catch: error => error instanceof OkfError ? error : new OkfError('GIT_FAILED', error instanceof Error ? error.message : String(error)) });
 const within = (root: string, file: string) => { const rel = relative(root, file); return rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel); };
 const hash = (raw: string | null) => raw === null ? null : createHash('sha256').update(raw).digest('hex');
-const internalPath = (path: string) => path.split('/').some(segment => segment === '.irudd-okf' || segment === '.git');
+export const internalPath = (path: string, platform: NodeJS.Platform = process.platform) => path.split('/').some(segment => {
+  const name = platform === 'win32' || platform === 'darwin' ? segment.toLowerCase() : segment;
+  return name === '.irudd-okf' || name === '.git';
+});
 const githubRepository = (url: string) => url.match(/^(?:https:\/\/github\.com\/|git@github\.com:)([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+?)(?:\.git)?$/)?.[1] ?? null;
 interface Snapshot { path: string; raw: string | null; hash: string | null }
 interface Job extends GitPreview { root: string; bundleRoot: string; worktree: string; snapshots: Snapshot[]; state: 'preview' | 'prepared' | 'committed' | 'pushed' | 'created'; url?: string; title?: string; body?: string; commit?: string }
@@ -43,7 +46,16 @@ export class GitMemory {
     let current = resolve(root, '/');
     for (const segment of relative(current, file).split(sep)) {
       current = resolve(current, segment);
-      try { if ((await lstat(current)).isSymbolicLink()) throw new OkfError('UNSAFE_PATH', 'Git memory edits cannot follow symbolic links.'); }
+      try {
+        const information = await lstat(current);
+        if (information.isSymbolicLink()) throw new OkfError('UNSAFE_PATH', 'Git memory edits cannot follow symbolic links.');
+        if (within(root, current)) {
+          const canonical = await realpath(current);
+          if (!within(root, canonical) || internalPath(relative(root, canonical).split(sep).join('/'))) throw new OkfError('UNSAFE_PATH', 'Git memory edits cannot select internal directories through filesystem aliases.');
+          const verified = await lstat(current);
+          if (verified.isSymbolicLink() || verified.dev !== information.dev || verified.ino !== information.ino) throw new OkfError('UNSAFE_PATH', 'A selected directory or file changed during inspection.');
+        }
+      }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
     }
     return file;

@@ -41,4 +41,9 @@ describe('CLI help and errors', () => {
     expect(result.status).toBe(2);
     expect(JSON.parse(result.stderr)).toMatchObject({ version: 1, error: { code: 'COMMAND_NOT_FOUND' } });
   });
+  it('rejects multiple write namespaces before reading or mutating files', () => {
+    const result = run('write', 'repo', 'note.md', '--file', 'unused.md', '--expected', 'new', '--namespace', 'shared', '--namespace', 'other');
+    expect(result.status).toBe(2);
+    expect(JSON.parse(result.stderr).error.code).toBe('INVALID_ARGUMENTS');
+  });
 });

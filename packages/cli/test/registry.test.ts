@@ -16,7 +16,7 @@ describe('progressive command discovery', () => {
   });
   it('publishes complete memory commands and request-file schemas from core', () => {
     for (const command of ['list', 'profile', 'namespaces', 'bootstrap', 'template', 'review', 'verify', 'task', 'lifecycle', 'audit', 'maintenance preview', 'maintenance apply', 'maintenance inspect', 'maintenance recover', 'migration preview', 'migration apply']) expect(commands.find(item => item.command === command)).toBeDefined();
-    expect(commands.find(item => item.command === 'template')?.fileInput).toMatchObject({ schema: { properties: { kind: { enum: ['procedural', 'episodic', 'semantic'] } } } });
+    expect(commands.find(item => item.command === 'template')?.fileInput).toMatchObject({ schema: { additionalProperties: false, properties: { kind: { enum: ['procedural', 'episodic', 'semantic'] } } } });
     expect(commands.find(item => item.command === 'migration preview')?.fileInput).toBeDefined();
     expect(commands.find(item => item.command === 'maintenance apply')?.mutates).toBe(true);
     expect(commands.find(item => item.command === 'maintenance inspect')?.mutates).toBe(false);
