@@ -103,6 +103,7 @@ try {
   await page.getByRole('button', { name: 'Preview changes', exact: true }).click();
   await page.getByRole('button', { name: 'Save file', exact: true }).click();
   await page.locator('.memory-document').getByText('procedural · silver · backend · pending · unverified · current', { exact: true }).waitFor();
+  assert.equal(await page.getByText('Task completion and retention', { exact: true }).count(), 0);
   await appendFile(join(root, 'index.md'), '\n[Procedure](procedure.md)\n');
   await openDetails('Review current content');
   await page.getByLabel('Review reason', { exact: true }).fill('Compared the procedure with the build evidence.');
@@ -130,7 +131,11 @@ try {
   await writeFile(join(root, 'shared.md'), procedure.replace('title: Check native builds', 'title: Shared verification').replace('namespace: backend', 'namespace: shared'));
   await appendFile(join(root, 'index.md'), '\n[Frontend](frontend.md)\n[Shared](shared.md)\n');
   await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await page.locator('.concept-list').getByRole('link', { name: 'Frontend verification', exact: true }).waitFor();
+  const filteredList = page.waitForResponse(response => { const url = new URL(response.url()); return url.pathname === '/api/list' && url.searchParams.getAll('namespace').join(',') === 'backend'; });
   await page.getByLabel('backend', { exact: true }).check();
+  assert((await filteredList).ok());
+  await page.locator('.concept-list').getByRole('link', { name: 'Frontend verification', exact: true }).waitFor({ state: 'detached' });
   await page.locator('.concept-list').getByRole('link', { name: 'Shared verification', exact: true }).waitFor();
   assert.equal(await page.locator('.concept-list').getByRole('link', { name: 'Frontend verification', exact: true }).count(), 0);
   await page.getByLabel('frontend', { exact: true }).check();
@@ -158,9 +163,20 @@ try {
   assert.equal(await readFile(join(root, 'procedure.md'), 'utf8'), procedure);
   await page.getByRole('button', { name: 'Preview proposal', exact: true }).click();
   await page.locator('.maintenance-preview .error').waitFor({ state: 'detached' });
+  let appliedHash = ''; let applyRequests = 0;
+  page.on('request', request => { if (new URL(request.url()).pathname === '/api/maintenance/apply') applyRequests++; });
+  await page.route('**/api/maintenance/apply', async route => { const response = await route.fetch(); assert(response.ok()); appliedHash = (await response.json()).previewHash; await route.abort(); });
   await page.getByRole('button', { name: 'Apply reviewed changes', exact: true }).click();
-  await page.locator('.maintenance-preview').getByText('applied · procedure.md', { exact: true }).waitFor();
-  await page.getByRole('button', { name: 'Inspect recovery journal', exact: true }).click();
+  await page.locator('.maintenance-preview .error').waitFor();
+  await page.unroute('**/api/maintenance/apply');
+  const requestsBeforeReload = applyRequests;
+  await page.reload();
+  await page.getByRole('button', { name: 'Maintain', exact: true }).click();
+  await page.getByRole('heading', { name: 'Review proposed file changes', exact: true }).waitFor();
+  await openDetails('Recover a previous operation');
+  assert.equal(await page.getByLabel('Recovery preview hash', { exact: true }).inputValue(), appliedHash);
+  assert.equal(applyRequests, requestsBeforeReload, 'Reload must not automatically apply a recovered preview.');
+  await page.getByRole('button', { name: 'Load recovery journal', exact: true }).click();
   await page.getByRole('heading', { name: 'Recovery applied', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Recover interrupted batch', exact: true }).click();
   await page.getByText('No interrupted lock required recovery. Review the journal before continuing.', { exact: true }).waitFor();
@@ -208,9 +224,32 @@ try {
   await page.getByRole('button', { name: 'Save file', exact: true }).click();
   await page.locator('.memory-document .memory-status').getByText(/episodic/).waitFor();
   await openDetails('Task completion and retention');
+  const originalEpisode = await readFile(join(migrationRoot, 'episode.md'), 'utf8');
+  await writeFile(join(migrationRoot, 'episode-b.md'), originalEpisode.replace('title: Build observation', 'title: Other build observation').replace('reference: offline-ticket-42', 'reference: offline-ticket-43'));
+  await page.getByLabel('Task reference', { exact: true }).fill('task:changed-a');
+  await page.getByLabel('Task outcome', { exact: true }).selectOption('completed');
   await page.getByLabel('Retention days, default 30', { exact: true }).fill('0');
   await page.getByRole('button', { name: 'Update task', exact: true }).click();
   await page.locator('.memory-document .memory-status').getByText(/expired.*excluded from recall/).waitFor();
+  await openDetails('Expiration, archive, and replacement');
+  await page.getByLabel('Lifecycle action', { exact: true }).selectOption('expire');
+  await page.getByLabel('Action date, UTC ISO date, optional', { exact: true }).fill('2020-01-01T00:00:00Z');
+  await page.getByLabel('Replacement resource, for deprecation', { exact: true }).fill('replacement-a.md');
+  await page.locator('.concept-list').getByRole('link', { name: 'Other build observation', exact: true }).click();
+  await page.locator('.document-title').getByRole('heading', { name: 'Other build observation', exact: true }).waitFor();
+  await openDetails('Task completion and retention');
+  assert.equal(await page.getByLabel('Task reference', { exact: true }).inputValue(), 'offline-ticket-43');
+  assert.equal(await page.getByLabel('Retention days, default 30', { exact: true }).inputValue(), '');
+  assert.equal(await page.getByLabel('Task outcome', { exact: true }).inputValue(), 'open');
+  await openDetails('Expiration, archive, and replacement');
+  assert.equal(await page.getByLabel('Lifecycle action', { exact: true }).inputValue(), 'archive');
+  assert.equal(await page.getByLabel('Action date, UTC ISO date, optional', { exact: true }).inputValue(), '');
+  assert.equal(await page.getByLabel('Replacement resource, for deprecation', { exact: true }).inputValue(), '');
+  await page.getByLabel('Task outcome', { exact: true }).selectOption('completed');
+  await page.getByRole('button', { name: 'Update task', exact: true }).click();
+  await page.locator('.memory-document .memory-status').getByText(/episodic.*current/).waitFor();
+  const episodeB = await readFile(join(migrationRoot, 'episode-b.md'), 'utf8');
+  assert(episodeB.includes('reference: offline-ticket-43')); assert(!episodeB.includes('retention_days: 0'));
   await page.getByRole('button', { name: 'Maintain', exact: true }).click();
   await page.locator('.audit-list').getByRole('button', { name: 'Build observation', exact: true }).waitFor();
   assert((await readFile(join(migrationRoot, 'episode.md'), 'utf8')).includes('state: completed'));
@@ -230,7 +269,7 @@ try {
   await page.locator('.browse .error').waitFor({ state: 'detached' });
 
   assert.deepEqual(errors, []); assert.deepEqual(external, []);
-  await writeFile(join(artifacts, 'browser-results.json'), JSON.stringify({ version: 1, platform: process.platform, arch: process.arch, client: 'standalone-native', passed: true, checks: ['directory-navigation', 'edit-conflict', 'metadata-preservation', 'exact-rename-preview', 'backlink-conflict-and-retry', 'delete-referrers', 'create', 'bounded-graph', 'mobile', 'memory-template-and-structured-edit', 'current-content-human-review', 'machine-verification', 'lifecycle-expiration', 'namespace-union-plus-shared', 'source-graph', 'maintenance-stale-preview-and-journal', 'migration-unresolved-and-apply', 'task-completion-retention', 'malformed-raw-repair', 'server-error-retry', 'no-external-fetches', 'no-browser-errors'] }, null, 2) + '\n');
+  await writeFile(join(artifacts, 'browser-results.json'), JSON.stringify({ version: 1, platform: process.platform, arch: process.arch, client: 'standalone-native', passed: true, checks: ['directory-navigation', 'edit-conflict', 'metadata-preservation', 'exact-rename-preview', 'backlink-conflict-and-retry', 'delete-referrers', 'create', 'bounded-graph', 'mobile', 'memory-template-and-structured-edit', 'current-content-human-review', 'machine-verification', 'lifecycle-expiration', 'namespace-union-plus-shared', 'source-graph', 'maintenance-stale-preview-and-journal', 'migration-unresolved-and-apply', 'task-completion-retention', 'per-note-task-and-lifecycle-inputs', 'maintenance-reload-recovery', 'malformed-raw-repair', 'server-error-retry', 'no-external-fetches', 'no-browser-errors'] }, null, 2) + '\n');
   console.log('PASS real HTTP + native file engine: existing wiki/graph flows, recoverable structured memory authoring, current-content reviews, machine verification, lifecycle/task retention, namespace union/shared, source graph, maintenance conflict/apply/recovery, migration decisions/apply, mobile and empty results.');
 } catch (error) {
   if (browser) { const failed = browser.contexts()[0]?.pages()[0]; if (failed) { await writeFile(join(artifacts, "browser-failure.html"), await failed.content()); await failed.screenshot({ path: join(artifacts, "browser-failure.png"), fullPage: true }); } }

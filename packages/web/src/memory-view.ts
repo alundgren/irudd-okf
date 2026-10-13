@@ -314,11 +314,11 @@ export function memoryViews(model: Model, h: Html.HtmlBuilder<Message>) {
           ),
           choice("Review decision", "decision", ["approve", "reject"]),
           form("Reviewer, human: name", "actor"),
-          form("Review reason", "reason", true),
+          form("Review reason", "reviewReason", true),
           action(
             "Record human review",
             "review",
-            !model.memoryForm.reason?.trim() || !model.memoryForm.actor?.startsWith("human:"),
+            !model.memoryForm.reviewReason?.trim() || !model.memoryForm.actor?.startsWith("human:"),
             model.memoryForm.decision === "reject" ? "danger" : "primary",
           ),
         ]),
@@ -328,24 +328,26 @@ export function memoryViews(model: Model, h: Html.HtmlBuilder<Message>) {
           form("Verification method and evidence checked", "method", true),
           action("Record machine verification", "verify", !model.memoryForm.method?.trim()),
         ]),
-        h.details(disclosure("task-retention"), [
-          summary("task-retention", "Task completion and retention"),
-          form("Task reference", "taskReference", false, metadata?.task?.reference),
-          choice("Task outcome", "taskState", ["completed", "cancelled", "open"]),
-          form("Completed at, UTC ISO date, optional", "completedAt"),
-          form(
-            `Retention days, default ${model.profile?.policy?.task_retention_days ?? 30}`,
-            "retentionDays",
-          ),
-          form("Keep historical episode, retention reason", "retentionReason"),
-          h.p(
-            [h.Class("muted")],
-            [
-              "Clearing a previously entered retention value removes that override. A retention reason can keep a historical episode available.",
-            ],
-          ),
-          action("Update task", "task"),
-        ]),
+        m.kind === "episodic"
+          ? h.details(disclosure("task-retention"), [
+              summary("task-retention", "Task completion and retention"),
+              form("Task reference", "taskReference", false, metadata?.task?.reference),
+              choice("Task outcome", "taskState", ["completed", "cancelled", "open"]),
+              form("Completed at, UTC ISO date, optional", "completedAt"),
+              form(
+                `Retention days, default ${model.profile?.policy?.task_retention_days ?? 30}`,
+                "retentionDays",
+              ),
+              form("Keep historical episode, retention reason", "retentionReason"),
+              h.p(
+                [h.Class("muted")],
+                [
+                  "Clearing a previously entered retention value removes that override. A retention reason can keep a historical episode available.",
+                ],
+              ),
+              action("Update task", "task"),
+            ])
+          : null,
         h.details(disclosure("lifecycle"), [
           summary("lifecycle", "Expiration, archive, and replacement"),
           choice("Lifecycle action", "lifecycleAction", [
@@ -546,11 +548,11 @@ export function memoryViews(model: Model, h: Html.HtmlBuilder<Message>) {
           : null,
         h.details(disclosure("recovery-lookup"), [
           summary("recovery-lookup", "Recover a previous operation"),
-          form("Recovery preview hash", "journalHash"),
+          form("Recovery preview hash", "journalHash", false, model.operationHash),
           action(
             "Load recovery journal",
             "journal",
-            !model.memoryForm.journalHash?.trim() || busy("journal"),
+            (!model.memoryForm.journalHash?.trim() && !model.operationHash) || busy("journal"),
           ),
           error("journal"),
         ]),

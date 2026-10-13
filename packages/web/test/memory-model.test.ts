@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
 import { Effect } from "effect";
-import { initialModel, issue, update, type Model } from "../src/model.ts";
+import { initialModel, issue, update, type Model, type Message } from "../src/model.ts";
 import type { Concept } from "../../core/src/contracts.ts";
 const concept: Concept = {
   bundle: "repo",
@@ -75,7 +75,7 @@ it("binds deliberate human review to the displayed file revision", async () => {
       memoryForm: {
         actor: "human:operator",
         decision: "reject",
-        reason: "Evidence contradicts this claim",
+        reviewReason: "Evidence contradicts this claim",
       },
     },
     { _tag: "MemoryAction", action: "review" },
@@ -158,4 +158,117 @@ it("keeps the selected source stable while interrupted-batch recovery is running
   const recovering = { ...model(), busy: ["maintenanceRecovery"] };
   expect(update(recovering, { _tag: "Scope", bundle: "other" }).model.bundle).toBe("repo");
   expect(update(recovering, { _tag: "MemoryAction", action: "review" }).commands).toEqual([]);
+});
+it("prefills another episode from its own task and clears the previous lifecycle inputs", async () => {
+  const selected = {
+    ...model(),
+    memoryForm: {
+      actor: "human:operator",
+      taskReference: "task:changed-a",
+      taskState: "completed",
+      completedAt: "2026-10-01T00:00:00Z",
+      retentionDays: "0",
+      retentionReason: "A history",
+      lifecycleAction: "expire",
+      lifecycleAt: "2026-10-01T00:00:00Z",
+      replacement: "a-replacement.md",
+      lifecycleReason: "A reason",
+      reason: "Proposal reason",
+    },
+  };
+  const requested = issue({ ...selected, concept: null }, "concept", "concept").model;
+  const other = {
+    ...concept,
+    path: "episode-b.md",
+    metadata: {
+      memory: {
+        kind: "episodic",
+        task: { reference: "task:b", state: "open", retention_days: 12 },
+        retention_reason: "B history",
+        replaced_by: "b-replacement.md",
+      },
+    },
+  };
+  const loaded = update(requested, {
+    _tag: "Loaded",
+    kind: "concept",
+    value: other,
+    lane: "concept",
+    id: requested.requests.concept!,
+    scope: { bundle: "repo", root: "/project/.okf" },
+  }).model;
+  expect(loaded.memoryForm).toMatchObject({
+    actor: "human:operator",
+    taskReference: "task:b",
+    taskState: "open",
+    retentionDays: "12",
+    retentionReason: "B history",
+    completedAt: "",
+    lifecycleAction: "archive",
+    lifecycleAt: "",
+    replacement: "b-replacement.md",
+    lifecycleReason: "",
+    reason: "Proposal reason",
+  });
+  let body: Record<string, unknown> = {};
+  vi.stubGlobal("fetch", async (_url: URL, options: RequestInit) => {
+    body = JSON.parse(String(options.body));
+    return {
+      ok: true,
+      json: async () => ({
+        version: 1,
+        bundle: "repo",
+        path: "episode-b.md",
+        hash: "updated-b",
+        changedPaths: ["episode-b.md"],
+      }),
+    };
+  });
+  await Effect.runPromise(
+    update(loaded, { _tag: "MemoryAction", action: "task" }).commands![0]!.effect,
+  );
+  expect(body).toMatchObject({
+    path: "episode-b.md",
+    task: { reference: "task:b", state: "open" },
+    retentionDays: 12,
+    retentionReason: "B history",
+  });
+});
+it("discards a deferred preview after proposal, migration, or policy decisions change", () => {
+  const preview = {
+    version: 1 as const,
+    bundle: "repo",
+    root: "/project/.okf",
+    purpose: "maintenance" as const,
+    reason: "Original",
+    previewHash: "original-digest",
+    changes: [],
+    guards: [],
+    diagnostics: [],
+    unresolved: [],
+    allowNamespaceChange: false,
+  };
+  const edits: Message[] = [
+    { _tag: "ProposalChange", index: 0, field: "raw", value: "Latest candidate" },
+    { _tag: "MigrationField", path: "facts.md", field: "kind", value: "episodic" },
+    { _tag: "MemoryForm", field: "goldReview", value: "human" },
+  ];
+  for (const edit of edits) {
+    const requested = issue(
+      { ...model(), proposalChanges: [{ path: "facts.md", raw: "Original candidate" }] },
+      "maintenancePreview",
+      "maintenance/preview",
+    ).model;
+    const changed = update(requested, edit).model;
+    const loaded = update(changed, {
+      _tag: "Loaded",
+      kind: "maintenancePreview",
+      value: preview,
+      lane: "maintenancePreview",
+      id: requested.requests.maintenancePreview!,
+      scope: { bundle: "repo", root: "/project/.okf" },
+    }).model;
+    expect(loaded.maintenancePreview).toBeNull();
+    expect(loaded.busy).not.toContain("maintenancePreview");
+  }
 });
