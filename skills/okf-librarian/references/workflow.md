@@ -82,6 +82,9 @@ On interruption, use the recorded journal and recovery workflow. Identify
 already-applied and conflicting paths before retrying. Do not delete a write
 lock or journal until its owner and current state have been checked. Report a
 conflict instead of overwriting another writer's work.
+Use `maintenance inspect BUNDLE PREVIEW_HASH` first. If the writer stopped,
+`maintenance recover BUNDLE PREVIEW_HASH` checks its saved owner and lock before
+releasing it. Retry the same reviewed preview only after successful recovery.
 
 Task completion can start the configured retention interval. Recheck stale
 durable memories rather than giving every fact or rule a TTL. Archive obsolete

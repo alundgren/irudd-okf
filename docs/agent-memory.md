@@ -273,6 +273,17 @@ irudd-okf maintenance inspect repo PREVIEW_HASH
 The inspection reports intended and current file states without overwriting
 conflicting bytes. Personal applies require separate explicit authorization.
 
+If an interrupted writer retained its lock, use the explicit recovery command:
+
+```sh
+irudd-okf maintenance recover repo PREVIEW_HASH
+```
+
+Recovery checks that the recorded owner process has stopped and that the lock
+has not changed. It refuses live or uncertain owners. Inspect the batch again,
+then retry the same reviewed preview. Keep recovery files outside publication;
+new bundles ignore `.irudd-okf/`, and Git review rejects selecting those files.
+
 Archive episodes before considering deletion. Do not delete an episode that is
 the only remaining evidence for a durable memory. Repair references or retain
 stable evidence through a reviewed maintenance proposal.
