@@ -12,6 +12,7 @@ const git = (cwd: string, ...args: string[]) => call('git', ['-c', 'core.hooksPa
 const safeOperation = <A>(run: () => Promise<A>): Operation<A> => Effect.tryPromise({ try: run, catch: error => error instanceof OkfError ? error : new OkfError('GIT_FAILED', error instanceof Error ? error.message : String(error)) });
 const within = (root: string, file: string) => { const rel = relative(root, file); return rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel); };
 const hash = (raw: string | null) => raw === null ? null : createHash('sha256').update(raw).digest('hex');
+const internalPath = (path: string) => path.split('/').some(segment => segment === '.irudd-okf' || segment === '.git');
 const githubRepository = (url: string) => url.match(/^(?:https:\/\/github\.com\/|git@github\.com:)([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+?)(?:\.git)?$/)?.[1] ?? null;
 interface Snapshot { path: string; raw: string | null; hash: string | null }
 interface Job extends GitPreview { root: string; bundleRoot: string; worktree: string; snapshots: Snapshot[]; state: 'preview' | 'prepared' | 'committed' | 'pushed' | 'created'; url?: string; title?: string; body?: string; commit?: string }
@@ -33,7 +34,7 @@ export class GitMemory {
   }
   private async safeFile(root: string, path: string) {
     root = await normalizeSystemPath(root);
-    if (!path || path.includes('\0') || path.includes('\\') || isAbsolute(path) || path.split('/').some(part => !part || part === '.' || part === '..') || !path.endsWith('.md')) throw new OkfError('UNSAFE_PATH', 'Select bundle-relative Markdown paths.');
+    if (!path || path.includes('\0') || path.includes('\\') || isAbsolute(path) || internalPath(path) || path.split('/').some(part => !part || part === '.' || part === '..') || !path.endsWith('.md')) throw new OkfError('UNSAFE_PATH', 'Select bundle-relative Markdown paths outside internal recovery and Git directories.');
     cleanPath(path);
     const file = resolve(root, path);
     if (!within(root, file)) throw new OkfError('UNSAFE_PATH', 'Path leaves the bundle.');
@@ -64,7 +65,7 @@ export class GitMemory {
         for (const full of paths) {
           if (!full?.endsWith('.md')) continue;
           const local = prefix ? full.startsWith(`${prefix}/`) ? full.slice(prefix.length + 1) : null : full;
-          if (local) files.push({ path: local, status: status.trim() });
+          if (local && !internalPath(local)) files.push({ path: local, status: status.trim() });
         }
       }
       const remote = await Effect.runPromise(runProcess('git', ['remote', 'get-url', 'origin'], root));
