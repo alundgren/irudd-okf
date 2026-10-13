@@ -179,6 +179,11 @@ export class GitMemory {
       const lock = await this.acquireLock(token);
       try {
         if (job.url) return { version: 1, url: job.url, branch: job.branch, worktree: job.worktree, state: 'existing' };
+        if (!Array.isArray(job.paths) || !Array.isArray(job.snapshots)) throw new OkfError('UNSAFE_PATH', 'The retained preview must contain valid memory file selections.');
+        for (const path of [...job.paths, ...job.snapshots.map(snapshot => snapshot?.path)]) {
+          if (typeof path !== 'string') throw new OkfError('UNSAFE_PATH', 'The retained preview contains an invalid memory path.');
+          await this.safeFile(job.bundleRoot, path);
+        }
         const currentRemote = await git(job.root, 'remote', 'get-url', 'origin');
         if (githubRepository(currentRemote) !== job.repository) throw new OkfError('SCOPE_CHANGED', 'The origin repository changed after preview.');
         await this.checkPushTarget(job.root, job.repository);

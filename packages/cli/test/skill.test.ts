@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import * as fs from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { Effect } from 'effect';
 import { installSkill, skillNames } from '../src/skill.ts';
@@ -68,5 +68,70 @@ describe('portable skill installation', () => {
     expect(await fs.readdir(root)).toEqual([]);
     vi.restoreAllMocks();
     expect((await run(installSkill(root))).files).toHaveLength(2);
+  });
+
+  it('rejects a swapped destination without writing into or removing the foreign directory', async () => {
+    const root = await fixture();
+    const foreign = join(root, 'foreign'); await fs.mkdir(foreign); await fs.writeFile(join(foreign, 'keep.md'), 'Foreign content.');
+    const target = join(root, 'okf');
+    const original = fs.mkdir;
+    vi.spyOn(fs, 'mkdir').mockImplementation(async (...args: Parameters<typeof fs.mkdir>) => {
+      const result = await original(...args);
+      if (String(args[0]) === target) { await fs.rename(target, join(root, 'displaced')); await fs.symlink(foreign, target); }
+      return result;
+    });
+    await expect(run(installSkill(root))).rejects.toMatchObject({ code: 'SKILL_INSTALL_FAILED' });
+    expect(await fs.readdir(foreign)).toEqual(['keep.md']);
+    expect(await fs.readFile(join(foreign, 'keep.md'), 'utf8')).toBe('Foreign content.');
+    expect((await fs.lstat(target)).isSymbolicLink()).toBe(true);
+    expect((await fs.lstat(join(root, 'displaced'))).isDirectory()).toBe(true);
+  });
+
+  it('detects a staging-directory swap before creating skill files and preserves foreign content', async () => {
+    const root = await fixture();
+    const foreign = join(root, 'foreign'); await fs.mkdir(foreign); await fs.writeFile(join(foreign, 'keep.md'), 'Foreign content.');
+    const original = fs.mkdir;
+    vi.spyOn(fs, 'mkdir').mockImplementation(async (...args: Parameters<typeof fs.mkdir>) => {
+      const path = String(args[0]);
+      if (path.endsWith('/references') && dirname(path).includes('.okf-skill-install-')) {
+        await fs.rename(dirname(path), join(root, 'displaced'));
+        await fs.symlink(foreign, dirname(path));
+      }
+      return original(...args);
+    });
+    await expect(run(installSkill(root))).rejects.toMatchObject({ code: 'SKILL_INSTALL_FAILED' });
+    expect(await fs.readFile(join(foreign, 'keep.md'), 'utf8')).toBe('Foreign content.');
+    expect(await fs.readdir(join(foreign, 'references'))).toEqual([]);
+    await expect(fs.lstat(join(foreign, 'SKILL.md'))).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(fs.lstat(join(root, 'okf'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('preserves a foreign file added to staging and refuses to publish it', async () => {
+    const root = await fixture();
+    const original = fs.writeFile;
+    vi.spyOn(fs, 'writeFile').mockImplementation(async (...args: Parameters<typeof fs.writeFile>) => {
+      if (String(args[0]).endsWith('references/usage.md')) {
+        await original(join(dirname(dirname(String(args[0]))), 'foreign.md'), 'Foreign content.');
+      }
+      return original(...args);
+    });
+    await expect(run(installSkill(root))).rejects.toMatchObject({ code: 'SKILL_INSTALL_FAILED' });
+    const entries = await fs.readdir(root);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatch(/^\.okf-skill-install-/);
+    expect(await fs.readdir(join(root, entries[0]))).toEqual(['foreign.md']);
+    expect(await fs.readFile(join(root, entries[0], 'foreign.md'), 'utf8')).toBe('Foreign content.');
+  });
+
+  it('rejects changes during publication and preserves edited bytes during rollback', async () => {
+    const root = await fixture();
+    const original = fs.rename;
+    vi.spyOn(fs, 'rename').mockImplementation(async (...args: Parameters<typeof fs.rename>) => {
+      if (String(args[0]).includes('.okf-skill-install-') && String(args[1]) === join(root, 'okf')) await fs.writeFile(join(String(args[0]), 'SKILL.md'), 'Foreign edited skill.');
+      return original(...args);
+    });
+    await expect(run(installSkill(root))).rejects.toMatchObject({ code: 'SKILL_INSTALL_FAILED' });
+    expect(await fs.readdir(join(root, 'okf'))).toEqual(['SKILL.md']);
+    expect(await fs.readFile(join(root, 'okf', 'SKILL.md'), 'utf8')).toBe('Foreign edited skill.');
   });
 });
