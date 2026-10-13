@@ -17,6 +17,62 @@ const store = {
 } as unknown as Store;
 const session = 'test-session';
 describe('local HTTP capability boundary', () => {
+  it('passes repeated namespace and audit selection to core before retrieval', async () => {
+    const requests: unknown[] = [];
+    const selected = { ...store, list: (bundle: unknown, options: unknown) => { requests.push({ bundle, options }); return Effect.succeed([]); }, search: (query: unknown, options: unknown) => { requests.push({ query, options }); return Effect.succeed({ results: [], total: 0 }); }, graph: (options: unknown) => { requests.push({ options }); return Effect.succeed({ nodes: [] }); }, index: (bundle: unknown, path: unknown, options: unknown) => { requests.push({ bundle, path, options }); return Effect.succeed({ raw: '' }); }, audit: (options: unknown) => { requests.push({ options }); return Effect.succeed({ concepts: [] }); } } as unknown as Store;
+    const web = HttpRouter.toWebHandler(createRoutes(selected, session, '<head>'), { disableLogger: true });
+    try {
+      for (const path of ['list', 'search', 'graph', 'index', 'audit']) {
+        const result = await web.handler(new Request(`http://localhost:3210/api/${path}?bundle=repo&namespace=payments&namespace=platform&includeExcluded=true`, { headers: { host: 'localhost:3210', 'x-okf-session': session } }));
+        expect(result.status).toBe(200);
+      }
+      expect(requests).toHaveLength(5);
+      expect(requests.every(value => JSON.stringify(value).includes('"namespaces":["payments","platform"]'))).toBe(true);
+      expect(requests.slice(0, 4).every(value => JSON.stringify(value).includes('"includeExcluded":true'))).toBe(true);
+      const invalid = await web.handler(new Request('http://localhost:3210/api/list?includeExcluded=perhaps', { headers: { host: 'localhost:3210', 'x-okf-session': session } }));
+      expect(invalid.status).toBe(400);
+    } finally { await web.dispose(); }
+  });
+
+  it('exposes every memory operation using core-owned request schemas and the existing session boundary', async () => {
+    const observed: string[] = [];
+    const method = (name: string) => (input: unknown) => { observed.push(name); return Effect.succeed({ input }); };
+    const adapter = { ...store, profile: method('profile'), namespaces: method('namespaces'), bootstrap: method('bootstrap'), inspectMaintenance: method('inspectMaintenance'), recoverMaintenance: method('recoverMaintenance'), template: method('template'), review: method('review'), verify: method('verify'), updateTask: method('updateTask'), lifecycle: method('lifecycle'), previewMaintenance: method('previewMaintenance'), applyMaintenance: method('applyMaintenance'), previewMigration: method('previewMigration'), applyMigration: method('applyMigration') } as unknown as Store;
+    const web = HttpRouter.toWebHandler(createRoutes(adapter, session, '<head>'), { disableLogger: true });
+    const mutation = { bundle: 'repo', path: 'note.md', expectedHash: 'a'.repeat(64) };
+    const preview = { version: 1, bundle: 'repo', root: '/example/bundle', purpose: 'maintenance', reason: 'Reviewed changes.', previewHash: 'b'.repeat(64), changes: [], guards: [], diagnostics: [], unresolved: [], allowNamespaceChange: false };
+    const operations: Array<[string, unknown]> = [
+      ['template', { bundle: 'repo', kind: 'semantic', title: 'Knowledge', description: 'Evidence.', tags: ['testing'], actor: 'agent:test' }],
+      ['review', { ...mutation, decision: 'approve', actor: 'human:reviewer', reason: 'Checked evidence.', operator: true }],
+      ['verify', { ...mutation, actor: 'agent:checker', method: 'Checked evidence.' }],
+      ['task', { ...mutation, task: { reference: 'task:42', state: 'completed' }, retentionDays: null, retentionReason: null }],
+      ['lifecycle', { ...mutation, action: 'clear-expiration' }],
+      ['maintenance/preview', { version: 1, bundle: 'repo', purpose: 'consolidation', reason: 'Reviewed lineage.', changes: [] }],
+      ['maintenance/apply', { preview, authorizePersonal: true }],
+      ['maintenance/recover', { bundle: 'repo', previewHash: 'b'.repeat(64), authorizePersonal: true }],
+      ['migration/preview', { bundle: 'repo', decisions: { 'legacy.md': { raw: '---\ntype: Fact\n---\nEvidence.' } } }],
+      ['migration/apply', { preview: { ...preview, purpose: 'migration' } }],
+    ];
+    const post = (path: string, body: unknown, authorized = true) => web.handler(new Request(`http://localhost:3210/api/${path}`, { method: 'POST', headers: { host: 'localhost:3210', 'content-type': 'application/json', ...(authorized ? { 'x-okf-session': session } : {}) }, body: JSON.stringify(body) }));
+    try {
+      for (const path of ['profile', 'namespaces', 'bootstrap', 'maintenance/journal']) {
+        expect((await web.handler(new Request(`http://localhost:3210/api/${path}?bundle=repo&previewHash=${'b'.repeat(64)}`, { headers: { host: 'localhost:3210', 'x-okf-session': session } }))).status).toBe(200);
+      }
+      for (const [path, data] of operations) {
+        expect((await post(path, data)).status).toBe(200);
+        expect((await post(path, data, false)).status).toBe(403);
+        expect((await post(path, {})).status).toBe(400);
+        const count = observed.length;
+        expect((await post(path, { ...(data as Record<string, unknown>), unresolvedQuestions: ['Unavailable evidence.'] })).status).toBe(400);
+        expect(observed).toHaveLength(count);
+      }
+      const count = observed.length;
+      expect((await post('maintenance/preview', { version: 1, bundle: 'repo', purpose: 'maintenance', reason: 'Explicit changes.', changes: [{ path: 'note.md', expectedHash: null, raw: '---\ntype: Fact\n---\nEvidence.', namespace: 'shared' }] })).status).toBe(400);
+      expect(observed).toHaveLength(count);
+      expect(observed).toEqual(['profile', 'namespaces', 'bootstrap', 'inspectMaintenance', 'template', 'review', 'verify', 'updateTask', 'lifecycle', 'previewMaintenance', 'applyMaintenance', 'recoverMaintenance', 'previewMigration', 'applyMigration']);
+      expect((await post('review', { ...mutation, decision: 'approve', actor: 'human:reviewer', reason: 'Checked evidence.', operator: false })).status).toBe(400);
+    } finally { await web.dispose(); }
+  });
   it('supports absent optional edit flags through the real file engine', async () => {
     const directory = await realpath(await mkdtemp(join(tmpdir(), 'okf-api-edit-')));
     const root = join(directory, '.okf'); await mkdir(root);

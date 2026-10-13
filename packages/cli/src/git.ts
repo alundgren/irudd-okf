@@ -12,6 +12,10 @@ const git = (cwd: string, ...args: string[]) => call('git', ['-c', 'core.hooksPa
 const safeOperation = <A>(run: () => Promise<A>): Operation<A> => Effect.tryPromise({ try: run, catch: error => error instanceof OkfError ? error : new OkfError('GIT_FAILED', error instanceof Error ? error.message : String(error)) });
 const within = (root: string, file: string) => { const rel = relative(root, file); return rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel); };
 const hash = (raw: string | null) => raw === null ? null : createHash('sha256').update(raw).digest('hex');
+export const internalPath = (path: string, platform: NodeJS.Platform = process.platform) => path.split('/').some(segment => {
+  const name = platform === 'win32' || platform === 'darwin' ? segment.toLowerCase() : segment;
+  return name === '.irudd-okf' || name === '.git';
+});
 const githubRepository = (url: string) => url.match(/^(?:https:\/\/github\.com\/|git@github\.com:)([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+?)(?:\.git)?$/)?.[1] ?? null;
 interface Snapshot { path: string; raw: string | null; hash: string | null }
 interface Job extends GitPreview { root: string; bundleRoot: string; worktree: string; snapshots: Snapshot[]; state: 'preview' | 'prepared' | 'committed' | 'pushed' | 'created'; url?: string; title?: string; body?: string; commit?: string }
@@ -33,7 +37,7 @@ export class GitMemory {
   }
   private async safeFile(root: string, path: string) {
     root = await normalizeSystemPath(root);
-    if (!path || path.includes('\0') || path.includes('\\') || isAbsolute(path) || path.split('/').some(part => !part || part === '.' || part === '..') || !path.endsWith('.md')) throw new OkfError('UNSAFE_PATH', 'Select bundle-relative Markdown paths.');
+    if (!path || path.includes('\0') || path.includes('\\') || isAbsolute(path) || internalPath(path) || path.split('/').some(part => !part || part === '.' || part === '..') || !path.endsWith('.md')) throw new OkfError('UNSAFE_PATH', 'Select bundle-relative Markdown paths outside internal recovery and Git directories.');
     cleanPath(path);
     const file = resolve(root, path);
     if (!within(root, file)) throw new OkfError('UNSAFE_PATH', 'Path leaves the bundle.');
@@ -42,7 +46,16 @@ export class GitMemory {
     let current = resolve(root, '/');
     for (const segment of relative(current, file).split(sep)) {
       current = resolve(current, segment);
-      try { if ((await lstat(current)).isSymbolicLink()) throw new OkfError('UNSAFE_PATH', 'Git memory edits cannot follow symbolic links.'); }
+      try {
+        const information = await lstat(current);
+        if (information.isSymbolicLink()) throw new OkfError('UNSAFE_PATH', 'Git memory edits cannot follow symbolic links.');
+        if (within(root, current)) {
+          const canonical = await realpath(current);
+          if (!within(root, canonical) || internalPath(relative(root, canonical).split(sep).join('/'))) throw new OkfError('UNSAFE_PATH', 'Git memory edits cannot select internal directories through filesystem aliases.');
+          const verified = await lstat(current);
+          if (verified.isSymbolicLink() || verified.dev !== information.dev || verified.ino !== information.ino) throw new OkfError('UNSAFE_PATH', 'A selected directory or file changed during inspection.');
+        }
+      }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
     }
     return file;
@@ -64,7 +77,7 @@ export class GitMemory {
         for (const full of paths) {
           if (!full?.endsWith('.md')) continue;
           const local = prefix ? full.startsWith(`${prefix}/`) ? full.slice(prefix.length + 1) : null : full;
-          if (local) files.push({ path: local, status: status.trim() });
+          if (local && !internalPath(local)) files.push({ path: local, status: status.trim() });
         }
       }
       const remote = await Effect.runPromise(runProcess('git', ['remote', 'get-url', 'origin'], root));
@@ -178,6 +191,11 @@ export class GitMemory {
       const lock = await this.acquireLock(token);
       try {
         if (job.url) return { version: 1, url: job.url, branch: job.branch, worktree: job.worktree, state: 'existing' };
+        if (!Array.isArray(job.paths) || !Array.isArray(job.snapshots)) throw new OkfError('UNSAFE_PATH', 'The retained preview must contain valid memory file selections.');
+        for (const path of [...job.paths, ...job.snapshots.map(snapshot => snapshot?.path)]) {
+          if (typeof path !== 'string') throw new OkfError('UNSAFE_PATH', 'The retained preview contains an invalid memory path.');
+          await this.safeFile(job.bundleRoot, path);
+        }
         const currentRemote = await git(job.root, 'remote', 'get-url', 'origin');
         if (githubRepository(currentRemote) !== job.repository) throw new OkfError('SCOPE_CHANGED', 'The origin repository changed after preview.');
         await this.checkPushTarget(job.root, job.repository);

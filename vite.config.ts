@@ -7,7 +7,7 @@ export default defineConfig({
     deps: { alwaysBundle: [/.*/] },
     exe: {
       fileName: 'irudd-okf',
-      seaConfig: { assets: { 'licenses.txt': 'THIRD_PARTY_NOTICES.txt', 'viewer.html': 'web-dist/viewer.html', 'skill/SKILL.md': 'skills/okf/SKILL.md', 'skill/references/usage.md': 'skills/okf/references/usage.md' }, useCodeCache: false, useSnapshot: false },
+      seaConfig: { assets: { 'licenses.txt': 'THIRD_PARTY_NOTICES.txt', 'viewer.html': 'web-dist/viewer.html', 'skill/SKILL.md': 'skills/okf/SKILL.md', 'skill/references/usage.md': 'skills/okf/references/usage.md', 'skills/okf-librarian/SKILL.md': 'skills/okf-librarian/SKILL.md', 'skills/okf-librarian/references/workflow.md': 'skills/okf-librarian/references/workflow.md', 'skills/okf-memory-reviewer/SKILL.md': 'skills/okf-memory-reviewer/SKILL.md', 'skills/okf-memory-reviewer/references/workflow.md': 'skills/okf-memory-reviewer/references/workflow.md' }, useCodeCache: false, useSnapshot: false },
     },
   },
 });
