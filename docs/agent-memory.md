@@ -140,6 +140,10 @@ invent sources or classify legacy content for you.
 `generated` identifies the producer and production time. `verified` records
 checks against evidence. `memory.reviews` records approval or rejection. These
 are separate from stage and lifetime.
+New synthesis and substantive rewrites record the current producer and
+production time. Keep prior authorship in repository or recovery history and
+retain older revision-bound review events. Auditing unchanged content or
+updating its lifecycle does not transfer authorship to the librarian.
 
 Review and verification events bind to a canonical content digest. The digest
 uses SHA-256 over UTF-8 JSON containing projected metadata and exact Markdown

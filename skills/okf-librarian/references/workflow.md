@@ -53,6 +53,11 @@ For each proposed consolidation:
   its occurrence time, task context, actions, and observed outcome.
 - Set processing stage according to the work done. Processing stage does not
   confer human approval. New synthesis starts with its own review pending.
+- For new synthesis or a substantive rewrite, set `generated.by` and
+  `generated.at` to the actual current producer and production time. Preserve
+  prior authorship in repository or recovery history and keep old revision-bound
+  review events. An unchanged audit or metadata-only lifecycle operation does
+  not make the librarian the producer of the original content.
 - Update affected topic indexes and relevant links in the same proposal.
 
 Use the CLI maintenance proposal and preview workflow to produce a concrete
