@@ -73,3 +73,52 @@ policies for all repositories.
 For example, a personal rule may prefer a package manager while a repository
 pins another. Show both source paths and follow any applicable repository
 instruction; when no convention resolves the difference, ask the operator.
+
+## Agent memory profiles
+
+New bundles have a shared `memory-policy.md`. Existing generic OKF bundles stay
+readable and require an explicit migration preview before adopting the profile.
+The policy declares namespace names, topic tags, and lifecycle defaults. Read it
+before namespace-scoped work. `bootstrap BUNDLE` retrieves it regardless of the
+selected namespaces, with the root index as the generic fallback.
+
+Use `memory.kind` for procedural instructions, episodic events, or semantic
+facts. Keep the existing descriptive `type`. `memory.stage` records bronze
+source observations, silver normalized knowledge, or gold curated knowledge.
+It does not prove truth or human approval. Topic tags describe subjects; use
+structured metadata for namespace, authorship, reviews, and lifetime.
+
+Repeated `--namespace` flags select several namespaces plus shared. Without a
+selection, retrieval considers all eligible notes in the selected bundles.
+Each written note has one namespace. A write with neither an argument nor
+metadata namespace is shared. Unknown names and conflicting write destinations
+need correction. Namespaces do not prevent an agent with filesystem access
+from reading other files.
+
+`generated` identifies production. `verified` records confirmation. Review
+events record approval or rejection against a content digest. Meaningful edits,
+including changed producer or applicability metadata, invalidate previous
+confirmation. A whole-file hash protects the write independently of that digest.
+Do not copy approval from source notes to a summary. Machine checks must use a
+machine actor; human approval requires a deliberate operator action and is still
+a recorded claim, not cryptographic identity proof.
+
+Record `sources` for evidence and `memory.derived_from` revision bindings for
+local evidence used in a consolidation. Keep failed cases, contradictions, and
+conditions in the text. Update indexes and replacement links with the notes.
+
+`stale_after` requests rechecking. `memory.expires_at` excludes a note from normal
+recall once that instant arrives. Archival and deprecation also remove notes
+from ordinary recall while preserving exact inspection and history. Task
+completion can start the policy's retention interval. A historical episode can
+expire without making a learned fact false.
+
+Use `audit` or `--include-excluded` to inspect inactive notes. Discover exact
+task, lifecycle, verification, review, maintenance, and migration commands with
+`irudd-okf cli search`, then inspect their schemas. Review a concrete maintenance
+preview before applying it. Preserve conflict and recovery evidence on restart;
+never replace another writer's changes to force a preview through.
+
+For scheduled maintenance, install and use the `okf-librarian` persona. For an
+independent assessment, use `okf-memory-reviewer`. The operator supplies the
+bundle, selected namespaces, operating mode, and permitted side effects.

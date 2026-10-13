@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it } from 'vite-plus/test';
+import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
+import * as fs from 'node:fs/promises';
 import { Effect } from 'effect';
 import { execFileSync } from 'node:child_process';
 import { realpath, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
@@ -7,7 +8,8 @@ import { resolve } from 'node:path';
 import { GitMemory } from '../src/git.ts';
 import { OkfError, type MemoryContext } from '../../core/src/contracts.ts';
 const directories: string[] = [];
-afterEach(async () => { for (const path of directories.splice(0)) await rm(path, { recursive: true, force: true }); });
+vi.mock('node:fs/promises', async importOriginal => ({ ...await importOriginal<typeof import('node:fs/promises')>() }));
+afterEach(async () => { vi.restoreAllMocks(); for (const path of directories.splice(0)) await rm(path, { recursive: true, force: true }); });
 const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trimEnd();
 const fixture = async () => {
   const root = await realpath(await mkdtemp(resolve(tmpdir(), 'okf-git-test-'))); directories.push(root);
@@ -25,6 +27,52 @@ const fixture = async () => {
   }) };
 };
 describe('isolated memory PR preparation', () => {
+  it('rejects an existing filesystem alias resolving to an internal directory', async () => {
+    const { root, memory } = await fixture();
+    const internal = resolve(root, '.okf/.irudd-okf');
+    const alias = resolve(root, '.okf/short-name');
+    await mkdir(resolve(internal, 'recovery'), { recursive: true });
+    await writeFile(resolve(internal, 'recovery/private.md'), 'Private recovery bytes.');
+    await mkdir(alias);
+    const original = fs.realpath;
+    vi.spyOn(fs, 'realpath').mockImplementation(async (...args: Parameters<typeof fs.realpath>) => String(args[0]) === alias ? internal : original(...args));
+    await expect(Effect.runPromise(memory.preview('repo', ['short-name/recovery/private.md'], 'origin/main'))).rejects.toMatchObject({ code: 'UNSAFE_PATH' });
+    expect(await readFile(resolve(internal, 'recovery/private.md'), 'utf8')).toBe('Private recovery bytes.');
+  });
+  it.each(['committed', 'pushed'])('rejects internal paths in both retained selection fields for a %s job', async state => {
+    const { root, memory } = await fixture();
+    await writeFile(resolve(root, '.okf/rule.md'), '---\ntype: Rule\n---\nReviewed edit\n');
+    const preview = await Effect.runPromise(memory.preview('repo', ['rule.md'], 'origin/main'));
+    // The fixture blocks GitHub lookup after creating the local reviewed commit.
+    await expect(Effect.runPromise(memory.publish(preview.token, 'Reviewed edit'))).rejects.toMatchObject({ details: { state: 'committed' } });
+    const jobPath = resolve(root, 'state', `${preview.token}.json`);
+    const retained = JSON.parse(await readFile(jobPath, 'utf8'));
+    for (const field of ['paths', 'snapshots']) {
+      const job = { ...retained, state, ...(field === 'paths' ? { paths: ['topics/.irudd-okf/recovery/private.md'] } : { snapshots: [{ ...retained.snapshots[0], path: 'topics/.git/private.md' }] }) };
+      await writeFile(jobPath, JSON.stringify(job));
+      await expect(Effect.runPromise(memory.publish(preview.token, 'Reviewed edit'))).rejects.toMatchObject({ code: 'UNSAFE_PATH', details: { state } });
+      expect(git(retained.worktree, 'rev-parse', 'HEAD')).toBe(retained.commit);
+      expect(JSON.parse(await readFile(jobPath, 'utf8')).state).toBe(state);
+    }
+    expect(git(root, 'branch', '--show-current')).toBe('main');
+  });
+  it('omits recovery files from status and rejects publishing internal paths at every directory level', async () => {
+    const { root, memory } = await fixture();
+    const internal = ['.irudd-okf/recovery/original.md', 'topics/.irudd-okf/recovery/original.md', 'topics/.git/recovery.md'];
+    for (const file of internal) {
+      await mkdir(resolve(root, '.okf', file, '..'), { recursive: true });
+      await writeFile(resolve(root, '.okf', file), '---\ntype: Fact\n---\nPrivate recovery content.\n');
+    }
+    await writeFile(resolve(root, '.okf', '.irudd-okf-note.md'), '---\ntype: Fact\n---\nOrdinary knowledge.\n');
+    await writeFile(resolve(root, '.okf', 'rule.md'), '---\ntype: Rule\n---\nReviewed rule.\n');
+    const status = await Effect.runPromise(memory.status('repo'));
+    expect(status.files.map(file => file.path).sort()).toEqual(['.irudd-okf-note.md', 'rule.md']);
+    for (const path of internal) await expect(Effect.runPromise(memory.preview('repo', [path], 'origin/main'))).rejects.toMatchObject({ code: 'UNSAFE_PATH' });
+    const preview = await Effect.runPromise(memory.preview('repo', ['.irudd-okf-note.md', 'rule.md'], 'origin/main'));
+    expect(preview.paths).toEqual(['.irudd-okf-note.md', 'rule.md']);
+    expect(preview.diff).toContain('Ordinary knowledge.');
+    expect(preview.diff).not.toContain('Private recovery content.');
+  });
   it('preserves staged code and selected base identity', async () => {
     const { root, memory } = await fixture();
     git(root, 'update-ref', 'refs/remotes/origin/aaa-other', 'HEAD');

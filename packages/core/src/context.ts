@@ -1,3 +1,4 @@
+import { policyRaw } from './memory.ts';
 import * as fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
@@ -5,7 +6,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { OkfError, type Bundle, type MemoryContext, type Operation } from './contracts.ts';
 import { ConfigSchema, decode } from './schemas.ts';
-import { absent, operation, within, withLock, atomicReplace, atomicCreate, ensureDirectory, canonicalDirectory, normalizeSystemPath } from './files.ts';
+import { absent, operation, within, withLock, atomicReplace, atomicCreate, ensureDirectory, canonicalDirectory, normalizeSystemPath, readRaw, recovery } from './files.ts';
 
 interface Config { version: 1; bundles: Array<{ name: string; path: string; personal?: boolean }>; active: string[] }
 const globalPath = () => {
@@ -77,7 +78,12 @@ export function initializeBundle(root: string): Operation<{ root: string }> {
     const absolute = path.resolve(root);
     await ensureDirectory(absolute);
     const bundle = await mount('new', absolute, 'explicit');
-    await atomicCreate(path.join(bundle.root, 'index.md'), `---
+    return withLock(bundle.root, async () => {
+      for (const relative of ['index.md', 'memory-policy.md']) {
+        try { await fs.lstat(path.join(bundle.root, relative)); throw new OkfError('ALREADY_EXISTS', 'Initialization never changes an existing index or canonical policy. Use migration preview for an existing bundle.', { root: absolute, path: relative }); }
+        catch (error) { if (!absent(error)) throw error; }
+      }
+      const outputs = [{ path: 'index.md', raw: `---
 okf_version: "0.2"
 ---
 
@@ -101,11 +107,33 @@ when guidance changes. Check links and review concept and index edits together.
 Run scoped validation and lint when available. Personal edits require explicit
 operator authorization.
 
+## Memory policy
+
+- [Agent memory policy](memory-policy.md)
+
 ## Topics
 
 Add links to topic indexes here as knowledge grows.
-`).catch(error => { if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new OkfError('ALREADY_EXISTS', 'Initialization never replaces an existing index.', { root: absolute }); throw error; });
-    return { root: bundle.root };
+` }, { path: 'memory-policy.md', raw: policyRaw() }, { path: '.gitignore', raw: '.irudd-okf/\n' }];
+      const created: Array<{path: string; raw: string}> = [];
+      try {
+        for (const output of outputs) {
+          try { await atomicCreate(path.join(bundle.root, output.path), output.raw); created.push(output); }
+          catch (error) { if (output.path === '.gitignore' && (error as NodeJS.ErrnoException).code === 'EEXIST') continue; throw error; }
+        }
+      } catch (error) {
+        const preserved: string[] = [];
+        const recoveries: string[] = [];
+        for (const output of [...created].reverse()) {
+          try { const current = await readRaw(bundle, output.path); if (current !== output.raw) { preserved.push(output.path); recoveries.push(await recovery(bundle.root, current)); continue; } await fs.unlink(path.join(bundle.root, output.path)); }
+          catch { preserved.push(output.path); }
+        }
+        if (preserved.length) throw new OkfError('ROLLBACK_INCOMPLETE', 'Initialization stopped; external edits prevented rollback of newly created files.', { paths: preserved, recoveryPaths: recoveries });
+        if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new OkfError('ALREADY_EXISTS', 'A destination appeared during initialization. Existing bytes remain unchanged.');
+        throw error;
+      }
+      return { root: bundle.root };
+    });
   });
 }
 export function registerBundle(name: string, root: string, options: { configPath?: string; activate?: boolean; personal?: boolean } = {}): Operation<unknown> {

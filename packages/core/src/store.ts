@@ -3,12 +3,14 @@ import path from 'node:path';
 import MarkdownIt from 'markdown-it';
 import linkRule from 'markdown-it/lib/rules_inline/link.mjs';
 import referenceRule from 'markdown-it/lib/rules_block/reference.mjs';
-import { OkfError, type Bundle, type Concept, type ConceptSummary, type Diagnostic, type MemoryContext, type Store, type Operation, type WriteRequest, type DeleteRequest, type RenameRequest, type MutationResult, type RenamePreview } from './contracts.ts';
+import { OkfError, type Bundle, type Concept, type ConceptSummary, type Diagnostic, type MemoryContext, type Store, type Operation, type WriteRequest, type DeleteRequest, type RenameRequest, type MutationResult, type RenamePreview, type RecallSelection, type StoreOptions } from './contracts.ts';
 import { operation, guarded, scan, hash, absent, cleanPath, withLock, recovery, atomicReplace, atomicCreate, readRaw } from './files.ts';
-import { decode, WriteSchema, DeleteSchema, RenameSchema } from './schemas.ts';
+import { decode, WriteSchema, DeleteSchema, RenameSchema, RecallSchema, SearchOptionsSchema, GraphOptionsSchema } from './schemas.ts';
+import { attachMemoryOperations } from './memory-operations.ts';
+import { projectDocuments, discoverProfile, assertNamespace, metadataLinks, namespaceOf, patchMetadata, rewriteMetadataLinks, dateValue, isMemoryPolicyPath } from './memory.ts';
 import { parseConcept, reserved, resolveLink } from './parser.ts';
 
-const summary = (concept: Concept): ConceptSummary => ({ bundle: concept.bundle, path: concept.path, title: concept.title, type: concept.type, description: concept.description, tags: [...concept.tags], hash: concept.hash, malformed: concept.malformed });
+const summary = (concept: Concept): ConceptSummary => ({ bundle: concept.bundle, path: concept.path, title: concept.title, type: concept.type, description: concept.description, tags: [...concept.tags], hash: concept.hash, malformed: concept.malformed, ...(concept.memory ? { memory: structuredClone(concept.memory) } : {}) });
 const compare = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
 const bounded = (value: number | undefined, fallback: number, maximum: number) => Number.isFinite(value) ? Math.max(1, Math.min(maximum, Math.floor(value!))) : fallback;
 const id = (concept: { bundle: string; path: string }) => `${concept.bundle}:${concept.path}`;
@@ -139,7 +141,8 @@ function rewriteLinks(raw: string, source: string, oldPath: string, newPath: str
 }
 
 export function resolveBundleFile(context: MemoryContext, bundle: string, file: string): Operation<string> { return operation(() => guarded(select(context, bundle), file)); }
-export function createStore(input: MemoryContext): Store {
+export function createStore(input: MemoryContext, options: StoreOptions = {}): Store {
+  const now = options.now ?? (() => new Date());
   const context = structuredClone(input);
   context.bundles.forEach(Object.freeze);
   Object.freeze(context.bundles);
@@ -166,11 +169,18 @@ export function createStore(input: MemoryContext): Store {
             cached = { fingerprint: file.fingerprint, concept: parseConcept(bundle.name, file.path, raw) };
             cache.set(key, cached);
           }
-          output[offset + index] = detailed ? structuredClone(cached.concept) : cached.concept;
+          output[offset + index] = structuredClone(cached.concept);
         }
       }));
     }
     output.sort((a, b) => compare(id(a), id(b)));
+    const clock = now();
+    const profiles = projectDocuments(output, clock);
+    for (const concept of output) if (!concept.memory && dateValue(concept.metadata.stale_after) !== null && clock.getTime() >= dateValue(concept.metadata.stale_after)!) concept.diagnostics.push({ level: 'warning', code: 'STALE', path: concept.path, bundle: concept.bundle, message: 'The concept is past stale_after.' });
+    for (const concept of output) for (const item of metadataLinks(concept, profiles.get(concept.bundle)?.mode === 'memory')) {
+      const link = resolveLink(concept.path, item.resource);
+      concept.links.push({ target: link.target, label: item.label, external: link.external, broken: !!link.unsafe, ...(link.fragment !== undefined ? { fragment: link.fragment } : {}) });
+    }
     if (!detailed) return output;
     const all = new Map(output.map(concept => [id(concept), concept]));
     const checked = new Map<string, Promise<boolean>>();
@@ -198,12 +208,22 @@ export function createStore(input: MemoryContext): Store {
     if (!concept) throw new OkfError('NOT_FOUND', 'The Markdown document does not exist.', { bundle, path: normalized });
     return concept;
   }
-  const store: Store = {
+  function recall(documents: Concept[], selection: RecallSelection = {}, bundleName?: string): Concept[] {
+    decode(RecallSchema, selection);
+    const bundles = bundleName ? [select(context, bundleName)] : context.bundles;
+    const profiles = bundles.map(bundle => discoverProfile(bundle.name, documents));
+    for (const profile of profiles) if (profile.mode === 'invalid' && (!selection.includeExcluded || selection.namespaces?.length)) throw new OkfError('INVALID_MEMORY_POLICY', 'Repair the canonical policy before profile-dependent recall.', { diagnostics: profile.diagnostics });
+    const registered = new Set(['shared', ...profiles.flatMap(profile => profile.policy?.namespaces ?? [])]);
+    for (const namespace of selection.namespaces ?? []) if (!registered.has(namespace)) throw new OkfError('UNKNOWN_NAMESPACE', 'Namespace is not registered in any selected bundle.', { namespace });
+    return documents.filter(concept => (!concept.memory || selection.includeExcluded || concept.memory.eligible) && (!selection.namespaces?.length || (concept.memory?.namespace ?? 'shared') === 'shared' || selection.namespaces.includes(concept.memory?.namespace ?? 'shared')));
+  }
+  const store = {
     context,
-    previewRename: request => operation(async () => {
+    previewRename: (request: RenameRequest) => operation(async () => {
       request = decode(RenameSchema, request);
       const bundle = select(context, request.bundle);
       const oldPath = cleanPath(request.path), newPath = cleanPath(request.newPath);
+      if (isMemoryPolicyPath(oldPath) || isMemoryPolicyPath(newPath)) throw new OkfError('MEMORY_POLICY_PROTECTED', 'The canonical memory policy cannot be moved through structured operations. Repair its raw contents in place.');
       if (!newPath.endsWith('.md') || reserved(newPath) || reserved(oldPath)) throw new OkfError('INVALID_PATH', 'Rename applies to concept Markdown files.');
       const original = await requireHash(await guarded(bundle, oldPath), request.expectedHash);
       if (original === null) throw new OkfError('NOT_FOUND', 'The file does not exist.');
@@ -213,21 +233,24 @@ export function createStore(input: MemoryContext): Store {
       }
       return (await renamePlan(bundle.name, oldPath, newPath, original, request.updateLinks)).preview;
     }),
-    list: bundle => operation(async () => (await load(bundle, false)).filter(concept => !reserved(concept.path)).map(summary)),
+    list: (bundle?: string, selection: RecallSelection = {}) => operation(async () => recall(await load(bundle, false), selection, bundle).filter(concept => !reserved(concept.path)).map(summary)),
     read: (bundle, file) => operation(() => read(bundle, file)),
-    index: (bundle, directory = '') => operation(async () => {
+    index: (bundle: string, directory = '', selection: RecallSelection = {}) => operation(async () => {
       const normalized = directory ? cleanPath(directory).replace(/\/$/, '') : '';
       const file = normalized.endsWith('.md') ? normalized : normalized ? normalized + '/index.md' : 'index.md';
       const documents = await load(bundle);
       const authored = documents.find(concept => concept.path === file);
-      if (authored) return authored;
+      const eligible = recall(documents, selection, bundle);
+      if (authored && !selection.namespaces?.length && documents.every(concept => reserved(concept.path) || eligible.includes(concept))) return authored;
       const folder = path.posix.dirname(file);
       const prefix = folder === '.' ? '' : folder + '/';
-      const entries = documents.filter(concept => concept.path.startsWith(prefix) && !reserved(concept.path));
+      const entries = eligible.filter(concept => concept.path.startsWith(prefix) && !reserved(concept.path));
       const raw = '# Knowledge\n\n' + entries.slice(0, 250).map(concept => `- [${concept.title.replace(/[\[\]]/g, '')}](${concept.path.slice(prefix.length).split('/').map(encodeURIComponent).join('/')})${concept.description ? ' - ' + concept.description : ''}`).join('\n') + '\n';
       return { ...parseConcept(bundle, file, raw), hash: '' };
     }),
-    search: (query, options = {}) => operation(async () => {
+    search: (query: string, options: import('./contracts.ts').SearchOptions = {}) => operation(async () => {
+      decode(SearchOptionsSchema, options);
+      if (typeof query !== 'string') throw new OkfError('INVALID_REQUEST', 'Search query must be a string.');
       if (query.length > 2048) throw new OkfError('QUERY_LIMIT', 'Search queries are limited to 2048 characters.');
       const terms: string[] = [];
       const filters: Array<{ key: string; value: string }> = [];
@@ -237,7 +260,7 @@ export function createStore(input: MemoryContext): Store {
       }
       if (terms.length + filters.length > 32) throw new OkfError('QUERY_LIMIT', 'Search queries are limited to 32 terms and filters.');
       const results = [];
-      for (const concept of (await load(options.bundle, false)).filter(concept => !reserved(concept.path))) {
+      for (const concept of recall(await load(options.bundle, false), { namespaces: options.namespaces, includeExcluded: options.includeExcluded }, options.bundle).filter(concept => !reserved(concept.path))) {
         if (!filters.every(filter => filter.key === 'bundle' ? concept.bundle.toLowerCase() === filter.value : filter.key === 'type' ? concept.type?.toLowerCase() === filter.value : filter.key === 'tag' ? concept.tags.some(tag => tag.toLowerCase() === filter.value) : filter.key === 'exact' ? concept.title.toLowerCase() === filter.value || concept.path.toLowerCase() === filter.value : concept.path.toLowerCase().includes(filter.value))) continue;
         const fields = [{ name: 'title', text: concept.title, weight: 12 }, { name: 'path', text: concept.path, weight: 8 }, { name: 'tags', text: concept.tags.join(' '), weight: 10 }, { name: 'description', text: concept.description, weight: 6 }, { name: 'type', text: concept.type ?? '', weight: 4 }, { name: 'body', text: concept.body, weight: 1 }].map(field => ({ ...field, text: field.text.toLowerCase() }));
         let score = 0;
@@ -253,8 +276,9 @@ export function createStore(input: MemoryContext): Store {
       const offset = Number.isFinite(options.offset) ? Math.max(0, Math.floor(options.offset!)) : 0;
       return { version: 1, query, results: results.slice(offset, offset + limit), total: results.length, limit, offset, truncated: offset + limit < results.length };
     }),
-    graph: (options = {}) => operation(async () => {
-      const documents = (await load(options.bundle)).filter(concept => !reserved(concept.path));
+    graph: (options: import('./contracts.ts').GraphOptions = {}) => operation(async () => {
+      decode(GraphOptionsSchema, options);
+      const documents = recall(await load(options.bundle), { namespaces: options.namespaces, includeExcluded: options.includeExcluded }, options.bundle).filter(concept => !reserved(concept.path));
       const limit = bounded(options.limit, 80, 250);
       const depth = Number.isFinite(options.depth) ? Math.max(0, Math.min(3, Math.floor(options.depth!))) : 1;
       const all = new Map(documents.map(concept => [id(concept), concept]));
@@ -284,19 +308,31 @@ export function createStore(input: MemoryContext): Store {
       if (graphEdges.length > edgeLimit) truncated = true;
       return { version: 1, nodes: [...selected.values()].map(summary), edges: graphEdges.slice(0, edgeLimit), truncated, limit };
     }),
-    validate: (options = {}) => operation(async () => {
+    validate: (options: {bundle?: string; lint?: boolean} = {}) => operation(async () => {
       const documents = await load(options.bundle, options.lint);
       const diagnostics = documents.flatMap(concept => [ ...concept.diagnostics.filter(diagnostic => options.lint || diagnostic.level === 'error'), ...(options.lint ? concept.links.filter(link => link.broken).map(link => ({ level: 'warning' as const, code: 'BROKEN_LINK', path: concept.path, bundle: concept.bundle, message: `Unavailable link target: ${link.target}` })) : []) ]);
-      if (options.lint) diagnostics.push(...unindexedConcepts(documents));
+      if (options.lint) diagnostics.push(...unindexedConcepts(documents), ...documents.flatMap(concept => concept.memory?.diagnostics ?? []), ...context.bundles.filter(bundle => !options.bundle || bundle.name === options.bundle).flatMap(bundle => discoverProfile(bundle.name, documents).diagnostics), ...documents.filter(concept => !isMemoryPolicyPath(concept.path) && concept.metadata.memory_policy !== undefined).map(concept => ({ level: 'warning' as const, code: 'EXTRA_MEMORY_POLICY', bundle: concept.bundle, path: concept.path, message: 'Only root memory-policy.md activates the memory profile.' })));
       return { version: 1, files: documents.length, errors: diagnostics.filter(item => item.level === 'error').length, warnings: diagnostics.filter(item => item.level === 'warning').length, diagnostics };
     }),
-    save: request => operation(() => save(decode(WriteSchema, request))),
-    remove: request => operation(() => remove(decode(DeleteSchema, request))),
-    rename: request => operation(() => rename(decode(RenameSchema, request)))
-  };
+    save: (request: WriteRequest) => operation(() => save(decode(WriteSchema, request))),
+    remove: (request: DeleteRequest) => operation(() => remove(decode(DeleteSchema, request))),
+    rename: (request: RenameRequest) => operation(() => rename(decode(RenameSchema, request)))
+  } as Store;
+  attachMemoryOperations(store, { load, read, save, select: name => select(context, name), writable, now, options, summary });
   async function save(request: WriteRequest): Promise<MutationResult> {
     const bundle = select(context, request.bundle);
     writable(bundle, request);
+    const documents = await load(bundle.name, false);
+    const profile = discoverProfile(bundle.name, documents);
+    if (!reserved(request.path) && !isMemoryPolicyPath(request.path) && (profile.mode === 'memory' || request.namespace !== undefined)) {
+      const concept = parseConcept(bundle.name, request.path, request.raw);
+      const explicit = typeof concept.metadata.memory === 'object' && concept.metadata.memory !== null ? (concept.metadata.memory as Record<string, unknown>).namespace : undefined;
+      if (request.namespace !== undefined && explicit !== undefined && request.namespace !== explicit) throw new OkfError('NAMESPACE_CONFLICT', 'Write namespace argument conflicts with note metadata.');
+      const namespace = request.namespace ?? explicit ?? 'shared';
+      if (typeof namespace !== 'string') throw new OkfError('UNKNOWN_NAMESPACE', 'A note namespace must be one scalar string.');
+      if (profile.mode === 'memory' || request.namespace !== undefined || explicit !== undefined) assertNamespace(profile, namespace);
+      if (request.namespace !== undefined && explicit === undefined) request = { ...request, raw: patchMetadata(request.raw, [{ path: ['memory', 'namespace'], value: namespace }]) };
+    }
     const file = await guarded(bundle, request.path, true);
     if (!request.path.endsWith('.md')) throw new OkfError('INVALID_PATH', 'Memory edits require a Markdown file.');
     return withLock(bundle.root, async () => {
@@ -314,6 +350,10 @@ export function createStore(input: MemoryContext): Store {
   async function remove(request: DeleteRequest): Promise<MutationResult> {
     const bundle = select(context, request.bundle);
     writable(bundle, request);
+    if (isMemoryPolicyPath(cleanPath(request.path))) throw new OkfError('MEMORY_POLICY_PROTECTED', 'The canonical memory policy cannot be deleted through structured operations. Repair its raw contents in place.');
+    const concept = await read(bundle.name, request.path);
+    const profile = discoverProfile(bundle.name, await load(bundle.name));
+    if (profile.mode === 'memory' && concept.backlinks.length) throw new OkfError('PROTECTED_EVIDENCE_LINK', 'This concept has index, backlink or source references. Preview a maintenance proposal with explicit repairs or archive the stable evidence instead.', { backlinks: concept.backlinks });
     const file = await guarded(bundle, request.path);
     return withLock(bundle.root, async () => {
       const original = await requireHash(file, request.expectedHash);
@@ -328,8 +368,9 @@ export function createStore(input: MemoryContext): Store {
   }
   async function renamePlan(bundle: string, oldPath: string, newPath: string, original: string, updateLinks?: boolean) {
     const documents = updateLinks ? await load(bundle) : [];
-    const updates = documents.filter(concept => concept.path !== oldPath).map(concept => ({ concept, raw: rewriteLinks(concept.raw, concept.path, oldPath, newPath) })).filter(item => item.raw !== item.concept.raw);
-    const newRaw = updateLinks ? rewriteLinks(original, oldPath, oldPath, newPath, true) : original;
+    const memoryProfile = discoverProfile(bundle, documents).mode === 'memory';
+    const updates = documents.filter(concept => concept.path !== oldPath).map(concept => ({ concept, raw: rewriteLinks(rewriteMetadataLinks(concept, oldPath, newPath, false, memoryProfile), concept.path, oldPath, newPath) })).filter(item => item.raw !== item.concept.raw);
+    const newRaw = updateLinks ? rewriteLinks(rewriteMetadataLinks(parseConcept(bundle, oldPath, original), oldPath, newPath, true, memoryProfile), oldPath, oldPath, newPath, true) : original;
     const changes = oldPath === newPath ? [] : [{ path: oldPath, before: original, after: '' }, { path: newPath, before: '', after: newRaw }, ...updates.map(update => ({ path: update.concept.path, before: update.concept.raw, after: update.raw }))];
     const preview: RenamePreview = { version: 1, bundle, path: oldPath, newPath, changes, previewHash: hash(JSON.stringify({ bundle, oldPath, newPath, changes })) };
     return { updates, newRaw, preview };
@@ -339,6 +380,7 @@ export function createStore(input: MemoryContext): Store {
     writable(bundle, request);
     const oldPath = cleanPath(request.path);
     const newPath = cleanPath(request.newPath);
+    if (isMemoryPolicyPath(oldPath) || isMemoryPolicyPath(newPath)) throw new OkfError('MEMORY_POLICY_PROTECTED', 'The canonical memory policy cannot be moved through structured operations. Repair its raw contents in place.');
     if (!newPath.endsWith('.md') || reserved(newPath) || reserved(oldPath)) throw new OkfError('INVALID_PATH', 'Rename applies to concept Markdown files.');
     if (oldPath === newPath) return { version: 1, bundle: bundle.name, path: oldPath, hash: request.expectedHash, changedPaths: [] };
     return withLock(bundle.root, async () => {

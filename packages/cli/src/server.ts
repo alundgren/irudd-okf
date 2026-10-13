@@ -6,8 +6,9 @@ import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { resolve } from 'node:path';
 import { getAsset, isSea } from 'node:sea';
-import { OkfError, type ApiError, type DeleteRequest, type RenameRequest, type Store, type WriteRequest } from '../../core/src/contracts.ts';
+import { OkfError, type ApiError, type Store } from '../../core/src/contracts.ts';
 import { GitMemory } from './git.ts';
+import { ApplySchema, decode, DeleteSchema, LifecycleSchema, MigrationSchema, ProposalSchema, RecoverySchema, RenameSchema, ReviewSchema, TaskRequestSchema, TemplateSchema, VerifySchema, WriteSchema } from '../../core/src/schemas.ts';
 
 const headers = { 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer', 'x-frame-options': 'DENY', 'content-security-policy': "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'" };
 const response = (data: unknown, status = 200) => HttpServerResponse.jsonUnsafe(data, { status, headers });
@@ -21,7 +22,6 @@ const object = (value: unknown): Record<string, unknown> => {
   return value as Record<string, unknown>;
 };
 const string = (value: unknown, field: string) => { if (typeof value !== 'string') throw new OkfError('INVALID_INPUT', `${field} must be a string.`); return value; };
-const boolean = (value: unknown, field: string) => { if (typeof value !== 'boolean') throw new OkfError('INVALID_INPUT', `${field} must be a boolean.`); return value; };
 const number = (value: string | null, fallback: number) => { const n = value === null ? fallback : Number(value); if (!Number.isInteger(n)) throw new OkfError('INVALID_INPUT', 'An integer query parameter is required.'); return n; };
 
 export const createRoutes = (store: Store, capability: string, html: string, git = new GitMemory(store.context)) => {
@@ -40,14 +40,23 @@ export const createRoutes = (store: Store, capability: string, html: string, git
     const query = url.searchParams;
     const bundle = query.get('bundle') ?? undefined;
     const requiredBundle = () => string(bundle, 'bundle');
+    const excluded = query.get('includeExcluded');
+    if (excluded !== null && excluded !== 'true' && excluded !== 'false') throw new OkfError('INVALID_INPUT', 'includeExcluded must be true or false.');
+    const namespaces = query.getAll('namespace');
+    const selection = { namespaces: namespaces.length ? namespaces : undefined, includeExcluded: excluded === 'true' };
     if (request.method === 'GET') {
       switch (url.pathname) {
         case '/api/context': return response(store.context);
-        case '/api/list': return response({ version: 1, concepts: yield* store.list(bundle) });
-        case '/api/search': return response(yield* store.search(query.get('q') ?? '', { bundle, limit: number(query.get('limit'), 10), offset: number(query.get('offset'), 0) }));
-        case '/api/index': return response(yield* store.index(requiredBundle(), query.get('path') ?? undefined));
+        case '/api/list': return response({ version: 1, concepts: yield* store.list(bundle, selection) });
+        case '/api/search': return response(yield* store.search(query.get('q') ?? '', { bundle, ...selection, limit: number(query.get('limit'), 10), offset: number(query.get('offset'), 0) }));
+        case '/api/index': return response(yield* store.index(requiredBundle(), query.get('path') ?? undefined, selection));
         case '/api/concept': return response(yield* store.read(requiredBundle(), string(query.get('path'), 'path')));
-        case '/api/graph': return response(yield* store.graph({ bundle, path: query.get('path') ?? undefined, depth: number(query.get('depth'), 1), limit: number(query.get('limit'), 80) }));
+        case '/api/graph': return response(yield* store.graph({ bundle, ...selection, path: query.get('path') ?? undefined, depth: number(query.get('depth'), 1), limit: number(query.get('limit'), 80) }));
+        case '/api/profile': return response(yield* store.profile(requiredBundle()));
+        case '/api/namespaces': return response(yield* store.namespaces(requiredBundle()));
+        case '/api/bootstrap': return response(yield* store.bootstrap(requiredBundle()));
+        case '/api/audit': return response(yield* store.audit({ bundle, namespaces: selection.namespaces }));
+        case '/api/maintenance/journal': return response(yield* store.inspectMaintenance({ bundle: requiredBundle(), previewHash: string(query.get('previewHash'), 'previewHash') }));
         case '/api/validate': return response(yield* store.validate({ bundle, lint: query.get('lint') === 'true' }));
         case '/api/git/status': return response(yield* git.status(requiredBundle()));
         default: return response({ error: 'Not found' }, 404);
@@ -60,19 +69,18 @@ export const createRoutes = (store: Store, capability: string, html: string, git
     const raw = yield* request.text;
     if (Buffer.byteLength(raw) > 2_000_000) return errorResponse(new OkfError('INVALID_INPUT', 'Request body exceeds 2 MB.'));
     const data = object(JSON.parse(raw));
-    const mutation = () => ({ bundle: string(data.bundle, 'bundle'), path: string(data.path, 'path'), ...(data.authorizePersonal === undefined ? {} : { authorizePersonal: boolean(data.authorizePersonal, 'authorizePersonal') }) });
     switch (`${request.method} ${url.pathname}`) {
       case 'POST /api/concept': {
-        const write: WriteRequest = { ...mutation(), raw: string(data.raw, 'raw'), expectedHash: data.expectedHash === null ? null : string(data.expectedHash, 'expectedHash') };
+        const write = decode(WriteSchema, data, 'INVALID_INPUT');
         return response(yield* store.save(write));
       }
       case 'DELETE /api/concept': {
-        const remove: DeleteRequest = { ...mutation(), expectedHash: string(data.expectedHash, 'expectedHash') };
+        const remove = decode(DeleteSchema, data, 'INVALID_INPUT');
         return response(yield* store.remove(remove));
       }
       case 'POST /api/rename/preview':
       case 'POST /api/rename': {
-        const rename: RenameRequest = { ...mutation(), expectedHash: string(data.expectedHash, 'expectedHash'), newPath: string(data.newPath, 'newPath'), ...(data.updateLinks === undefined ? {} : { updateLinks: boolean(data.updateLinks, 'updateLinks') }), ...(data.previewHash === undefined ? {} : { previewHash: string(data.previewHash, 'previewHash') }) };
+        const rename = decode(RenameSchema, data, 'INVALID_INPUT');
         if (url.pathname.endsWith('/preview')) return response(yield* store.previewRename(rename));
         if (!rename.previewHash) return errorResponse(new OkfError('INVALID_INPUT', 'Review the affected files before confirming a rename.'));
         return response(yield* store.rename(rename));
@@ -82,6 +90,16 @@ export const createRoutes = (store: Store, capability: string, html: string, git
         return response(yield* git.preview(string(data.bundle, 'bundle'), data.paths as string[], data.base === undefined ? undefined : string(data.base, 'base')));
       }
       case 'POST /api/git/pr': return response(yield* git.publish(string(data.token, 'token'), string(data.title, 'title'), data.body === undefined ? undefined : string(data.body, 'body')));
+      case 'POST /api/template': return response(yield* store.template(decode(TemplateSchema, data)));
+      case 'POST /api/review': return response(yield* store.review(decode(ReviewSchema, data)));
+      case 'POST /api/verify': return response(yield* store.verify(decode(VerifySchema, data)));
+      case 'POST /api/task': return response(yield* store.updateTask(decode(TaskRequestSchema, data)));
+      case 'POST /api/lifecycle': return response(yield* store.lifecycle(decode(LifecycleSchema, data)));
+      case 'POST /api/maintenance/preview': return response(yield* store.previewMaintenance(decode(ProposalSchema, data)));
+      case 'POST /api/maintenance/apply': return response(yield* store.applyMaintenance(decode(ApplySchema, data)));
+      case 'POST /api/maintenance/recover': return response(yield* store.recoverMaintenance(decode(RecoverySchema, data)));
+      case 'POST /api/migration/preview': return response(yield* store.previewMigration(decode(MigrationSchema, data)));
+      case 'POST /api/migration/apply': return response(yield* store.applyMigration(decode(ApplySchema, data)));
       default: return response({ error: 'Not found' }, 404);
     }
   }).pipe(

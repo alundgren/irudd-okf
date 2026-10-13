@@ -11,13 +11,22 @@ when to consult memory and how to resolve conflicting guidance.
 1. Identify the active bundle and scope. With the optional CLI, run
    `irudd-okf context`. Otherwise follow the bundle path in the repository
    instructions. Do not search unrelated repositories or infer personal bundles.
-2. Read its root `index.md` if useful. Search for the current task, relevant code
+2. Read its root `index.md` and shared memory policy when present. With a memory
+   profile, use `irudd-okf bootstrap BUNDLE` before selecting namespaces. This
+   returns the shared policy or the generic root index. Namespace selection
+   always adds shared memories; a read selection never selects a write
+   destination. Without the CLI, read `memory-policy.md` and apply the same
+   conventions to file searches. Search for the current task, relevant code
    area and likely failure cases. Retrieve a few source files; avoid loading all
    rule titles, all skill triggers or the full corpus.
 3. Follow relevant links and inspect the actual code or documentation cited by
    a rule. A search result is a candidate, not evidence that every relevant rule
    has been found. Refine the query when names or task scope change.
-4. Apply the retrieved guidance under the repository's own conventions. Keep the
+4. Inspect freshness, review, and evidence status when the bundle uses a memory
+   profile. A pending procedure is a proposal; an episode is evidence of a
+   particular event. Processing stage and namespace do not decide instruction
+   precedence. Follow source links and check applicability before generalizing.
+   Apply the retrieved guidance under the repository's own conventions. Keep the
    bundle name and file path in any explanation of a rule. If conflicting rules
    affect the task and the instructions do not resolve them, explain the conflict
    and ask the operator. Do not invent a priority hierarchy.

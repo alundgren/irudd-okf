@@ -12,8 +12,60 @@ import type {
   RenamePreview,
   SearchResult,
   ValidationResult,
+  ProfileResult,
+  NamespaceResult,
+  BootstrapResult,
+  TemplateResult,
+  AuditResult,
+  MaintenancePreview,
+  MaintenanceResult,
+  MaintenanceJournalResult,
+  MaintenanceRecoveryResult,
 } from "../../core/src/contracts.ts";
 
+const diagnostic = Schema.Struct({
+  level: Schema.Literals(["error", "warning"]),
+  code: Schema.String,
+  path: Schema.String,
+  message: Schema.String,
+  bundle: Schema.optional(Schema.String),
+});
+const reviewEvent = Schema.Struct({
+  decision: Schema.Literals(["approve", "reject"]),
+  actor_type: Schema.Literals(["human", "machine"]),
+  by: Schema.String,
+  at: Schema.String,
+  reason: Schema.String,
+  content_hash: Schema.String,
+});
+const verificationEvent = Schema.Struct({
+  actor_type: Schema.Literal("machine"),
+  by: Schema.String,
+  at: Schema.String,
+  method: Schema.String,
+  content_hash: Schema.String,
+});
+const projection = Schema.Struct({
+  kind: Schema.NullOr(Schema.Literals(["procedural", "episodic", "semantic"])),
+  stage: Schema.NullOr(Schema.Literals(["bronze", "silver", "gold"])),
+  namespace: Schema.String,
+  review: Schema.Literals(["approved", "rejected", "pending"]),
+  verified: Schema.Boolean,
+  humanReviewed: Schema.Boolean,
+  machineVerified: Schema.Boolean,
+  trustTier: Schema.Literals(["unverified", "machine-confirmed", "human-reviewed"]),
+  historicalVerificationEvents: Schema.Array(Schema.Unknown),
+  freshness: Schema.Literals(["current", "stale", "expired", "invalid"]),
+  archived: Schema.Boolean,
+  deprecated: Schema.Boolean,
+  contentHash: Schema.String,
+  dependency: Schema.Literals(["valid", "changed", "rejected", "unavailable", "cycle", "invalid"]),
+  eligible: Schema.Boolean,
+  trust: Schema.Literals(["approved", "verified", "pending", "rejected", "invalid"]),
+  reviewEvents: Schema.Array(reviewEvent),
+  verificationEvents: Schema.Array(verificationEvent),
+  diagnostics: Schema.Array(diagnostic),
+});
 const summary = {
   bundle: Schema.String,
   path: Schema.String,
@@ -23,15 +75,105 @@ const summary = {
   tags: Schema.Array(Schema.String),
   hash: Schema.String,
   malformed: Schema.Boolean,
+  memory: Schema.optional(projection),
 };
-const diagnostic = Schema.Struct({
-  level: Schema.Literals(["error", "warning"]),
-  code: Schema.String,
+const policy = Schema.Struct({
+  name: Schema.Literal("agent-memory"),
+  version: Schema.Literal(1),
+  namespaces: Schema.Array(Schema.String),
+  topics: Schema.Array(Schema.String),
+  task_retention_days: Schema.Number,
+  review_interval_days: Schema.Number,
+  gold_review: Schema.Literals(["any", "human"]),
+});
+const profile = Schema.Struct({
+  version: Schema.Literal(1),
+  bundle: Schema.String,
+  mode: Schema.Literals(["generic", "memory", "invalid"]),
+  policy: Schema.NullOr(policy),
+  diagnostics: Schema.Array(diagnostic),
+});
+const previewChange = Schema.Struct({
   path: Schema.String,
-  message: Schema.String,
-  bundle: Schema.optional(Schema.String),
+  expectedHash: Schema.NullOr(Schema.String),
+  raw: Schema.NullOr(Schema.String),
+  before: Schema.NullOr(Schema.String),
+  afterHash: Schema.NullOr(Schema.String),
+});
+export const maintenancePreviewSchema = Schema.Struct({
+  version: Schema.Literal(1),
+  bundle: Schema.String,
+  root: Schema.String,
+  purpose: Schema.Literals(["maintenance", "consolidation", "migration"]),
+  reason: Schema.String,
+  previewHash: Schema.String,
+  changes: Schema.Array(previewChange),
+  guards: Schema.Array(Schema.Struct({ path: Schema.String, expectedHash: Schema.String })),
+  diagnostics: Schema.Array(diagnostic),
+  unresolved: Schema.Array(
+    Schema.Struct({ path: Schema.String, field: Schema.String, message: Schema.String }),
+  ),
+  allowNamespaceChange: Schema.Boolean,
+});
+const journal = Schema.Struct({
+  version: Schema.Literal(1),
+  bundle: Schema.String,
+  previewHash: Schema.String,
+  journalPath: Schema.String,
+  state: Schema.Literals(["prepared", "applying", "applied", "conflict"]),
+  preview: maintenancePreviewSchema,
+  paths: Schema.Array(
+    Schema.Struct({
+      path: Schema.String,
+      state: Schema.Literals(["untouched", "applied", "externally-changed"]),
+      before: Schema.NullOr(Schema.String),
+      after: Schema.NullOr(Schema.String),
+      currentHash: Schema.NullOr(Schema.String),
+      recoveryPath: Schema.optional(Schema.String),
+    }),
+  ),
 });
 const schemas = {
+  journal,
+  maintenanceRecovery: Schema.Struct({
+    ...journal.fields,
+    lockRecovered: Schema.Boolean,
+    lockRecoveryPath: Schema.optional(Schema.String),
+  }),
+  profile,
+  namespaces: Schema.Struct({
+    version: Schema.Literal(1),
+    bundle: Schema.String,
+    namespaces: Schema.Array(Schema.String),
+    shared: Schema.Literal("shared"),
+    mode: Schema.Literals(["generic", "memory", "invalid"]),
+  }),
+  bootstrap: Schema.Struct({
+    version: Schema.Literal(1),
+    bundle: Schema.String,
+    path: Schema.Literals(["memory-policy.md", "index.md"]),
+    raw: Schema.NullOr(Schema.String),
+    profile,
+  }),
+  template: Schema.Struct({
+    version: Schema.Literal(1),
+    bundle: Schema.String,
+    raw: Schema.String,
+  }),
+  audit: Schema.Struct({
+    version: Schema.Literal(1),
+    concepts: Schema.Array(Schema.Struct(summary)),
+    diagnostics: Schema.Array(diagnostic),
+  }),
+  maintenancePreview: maintenancePreviewSchema,
+  maintenanceResult: Schema.Struct({
+    version: Schema.Literal(1),
+    bundle: Schema.String,
+    previewHash: Schema.String,
+    changedPaths: Schema.Array(Schema.String),
+    journalPath: Schema.String,
+    state: Schema.Literals(["applied", "unchanged"]),
+  }),
   context: Schema.Struct({
     version: Schema.Literal(1),
     cwd: Schema.String,
@@ -164,6 +306,15 @@ const schemas = {
   }),
 };
 export interface Responses {
+  journal: MaintenanceJournalResult;
+  maintenanceRecovery: MaintenanceRecoveryResult;
+  profile: ProfileResult;
+  namespaces: NamespaceResult;
+  bootstrap: BootstrapResult;
+  template: TemplateResult;
+  audit: AuditResult;
+  maintenancePreview: MaintenancePreview;
+  maintenanceResult: MaintenanceResult;
   context: MemoryContext;
   list: { version: 1; concepts: ConceptSummary[] };
   concept: Concept;
@@ -197,14 +348,15 @@ export const errorFrom = (error: unknown): RequestError =>
 export function request<K extends keyof Responses>(
   kind: K,
   endpoint: string,
-  params: Record<string, string | number | undefined> = {},
+  params: Record<string, string | number | boolean | string[] | undefined> = {},
   body?: unknown,
   method = "GET",
 ): Effect.Effect<Responses[K], RequestError> {
   return Effect.gen(function* () {
     const url = new URL(`/api/${endpoint}`, location.origin);
     for (const [key, value] of Object.entries(params))
-      if (value !== undefined && value !== "") url.searchParams.set(key, String(value));
+      if (Array.isArray(value)) value.forEach((item) => url.searchParams.append(key, item));
+      else if (value !== undefined && value !== "") url.searchParams.set(key, String(value));
     const capability = document.querySelector<HTMLMetaElement>('meta[name="okf-session"]')?.content;
     if (!capability)
       return yield* Effect.fail(

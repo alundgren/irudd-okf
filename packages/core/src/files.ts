@@ -13,6 +13,10 @@ export const within = (root: string, target: string) => {
   return relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
 };
 const sameSystemPath = (first: string, second: string) => path.relative(first, second) === '';
+export function requireCanonicalComponent(requested: string, actual: string, platform: NodeJS.Platform = process.platform): void {
+  const paths = platform === 'win32' ? path.win32 : path.posix;
+  if (paths.relative(requested, actual) !== '') throw new OkfError('UNSAFE_PATH', 'Use the stored component names rather than filesystem short aliases.', { path: requested });
+}
 export async function normalizeSystemPath(input: string, platform: NodeJS.Platform = process.platform): Promise<string> {
   const paths = platform === 'win32' ? path.win32 : path.posix;
   const absolute = paths.resolve(input);
@@ -73,6 +77,12 @@ export async function guarded(bundle: Bundle, input: string, create = false): Pr
     try {
       const info = await fs.lstat(current);
       if (info.isSymbolicLink()) throw new OkfError('UNSAFE_PATH', 'Symbolic links are not supported inside bundles.', { path: input });
+      if (process.platform === 'win32') {
+        const actual = await fs.realpath(current);
+        const checked = await fs.lstat(current);
+        if (checked.isSymbolicLink() || checked.dev !== info.dev || checked.ino !== info.ino) throw new OkfError('UNSAFE_PATH', 'A bundle component changed during validation.', { path: input });
+        requireCanonicalComponent(current, actual);
+      }
       if (i < parts.length - 1 && !info.isDirectory()) throw new OkfError('UNSAFE_PATH', 'A parent path is not a directory.', { path: input });
     } catch (error) {
       if (!absent(error) || !create) throw error;
@@ -121,7 +131,11 @@ export async function withLock<A>(root: string, run: () => Promise<A>): Promise<
   const lock = path.join(folder, 'write.lock');
   let handle;
   try { handle = await fs.open(lock, 'wx', 0o600); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new OkfError('LOCKED', 'Another write is active. Inspect .irudd-okf/write.lock if a process stopped unexpectedly.'); throw error; }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+      let owner: Record<string, unknown> = {};
+      try { const parsed = JSON.parse(await fs.readFile(lock, 'utf8')); if (parsed && typeof parsed === 'object') owner = parsed; } catch {}
+      throw new OkfError('LOCKED', 'A write lock exists. Inspect the owner and use maintenance recovery only after the process stopped.', { lockPath: lock, ownerPid: owner.pid ?? null, startedAt: owner.startedAt ?? null });
+    } throw error; }
   try { await handle.writeFile(JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() })); return await run(); }
   finally { await handle.close(); await fs.unlink(lock); }
 }

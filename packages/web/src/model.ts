@@ -11,9 +11,17 @@ import type {
   ValidationResult,
 } from "../../core/src/contracts.ts";
 import { request, RequestError, type Responses } from "./api.ts";
+import {
+  keepMemoryWorkspace,
+  restoreMemoryWorkspace,
+  type MemoryWorkspace,
+  documentFields,
+} from "./memory-recovery.ts";
+import { editField, structuredMemory, type MemoryField } from "./memory-editor.ts";
 import { boundedGraph } from "./content.ts";
 
 export interface Draft {
+  fields?: Partial<Record<MemoryField | "body", string>>;
   root: string;
   bundle: string;
   path: string;
@@ -29,8 +37,11 @@ export interface Draft {
 export type Intent =
   | { _tag: "Open"; bundle: string; path: string; fragment?: string }
   | { _tag: "Scope"; bundle: string }
-  | { _tag: "View"; view: "wiki" | "graph" | "review" }
+  | { _tag: "View"; view: "wiki" | "graph" | "review" | "maintenance" | "profile" }
   | { _tag: "New" }
+  | { _tag: "Namespaces"; name: string }
+  | { _tag: "RecallAll" }
+  | { _tag: "IncludeExcluded"; value: boolean }
   | { _tag: "Cancel" }
   | { _tag: "Index"; path: string }
   | { _tag: "Route"; url: string }
@@ -78,8 +89,43 @@ export type Message =
   | { _tag: "ReviewField"; field: "base" | "title" | "body"; value: string }
   | { _tag: "GitPreview" }
   | { _tag: "Publish" }
+  | { _tag: "MemoryField"; field: MemoryField | "body"; value: string }
+  | { _tag: "MemoryForm"; field: string; value: string }
+  | {
+      _tag: "MemoryAction";
+      action:
+        | "template"
+        | "review"
+        | "verify"
+        | "task"
+        | "lifecycle"
+        | "migration"
+        | "proposal"
+        | "apply"
+        | "journal"
+        | "recoverBatch";
+    }
+  | { _tag: "ProposalChange"; index: number; field: "path" | "raw"; value: string }
+  | { _tag: "ProposalAdd" }
+  | { _tag: "ProposalRemove"; index: number }
+  | { _tag: "MigrationField"; path: string; field: string; value: string }
+  | { _tag: "MemoryWorkspaceRecovery"; root: string; bundle: string; value: MemoryWorkspace }
+  | { _tag: "Disclosure"; key: string; value: boolean }
   | { _tag: "Noop" };
 export interface Model {
+  disclosures: Record<string, boolean>;
+  profile: Responses["profile"] | null;
+  namespaces: Responses["namespaces"] | null;
+  selectedNamespaces: string[];
+  includeExcluded: boolean;
+  audit: Responses["audit"] | null;
+  maintenancePreview: Responses["maintenancePreview"] | null;
+  operationHash: string;
+  maintenanceResult: Responses["maintenanceResult"] | null;
+  journal: Responses["journal"] | null;
+  memoryForm: Record<string, string>;
+  migrationDecisions: Record<string, Record<string, string>>;
+  proposalChanges: Array<{ path: string; raw: string }>;
   context: MemoryContext | null;
   bundle: string;
   concept: Concept | null;
@@ -87,7 +133,7 @@ export interface Model {
   listOffset: number;
   query: string;
   search: SearchResult | null;
-  view: "wiki" | "graph" | "review";
+  view: "wiki" | "graph" | "review" | "maintenance" | "profile";
   graph: Graph | null;
   graphLimit: number;
   graphDepth: number;
@@ -122,6 +168,28 @@ export const ModelSchema = Schema.declare<Model>(
 export function initialModel(): Model {
   const params = new URLSearchParams(location.search);
   return {
+    disclosures: {},
+    profile: null,
+    namespaces: null,
+    selectedNamespaces: params.getAll("namespace"),
+    includeExcluded: params.get("includeExcluded") === "true",
+    audit: null,
+    maintenancePreview: null,
+    operationHash: "",
+    maintenanceResult: null,
+    journal: null,
+    memoryForm: {
+      kind: "semantic",
+      stage: "bronze",
+      namespace: "shared",
+      actor: "human:operator",
+      decision: "approve",
+      taskState: "completed",
+      lifecycleAction: "archive",
+      purpose: "maintenance",
+    },
+    migrationDecisions: {},
+    proposalChanges: [],
     context: null,
     bundle: params.get("bundle") ?? "",
     desiredPath: params.get("path") ?? "",
@@ -175,6 +243,28 @@ function clearScope(model: Model, bundle: string): Model {
   return {
     ...model,
     bundle,
+    memoryForm: {
+      kind: "semantic",
+      stage: "bronze",
+      namespace: "shared",
+      actor: "human:operator",
+      decision: "approve",
+      taskState: "completed",
+      lifecycleAction: "archive",
+      purpose: "maintenance",
+    },
+    disclosures: {},
+    profile: null,
+    namespaces: null,
+    audit: null,
+    maintenancePreview: null,
+    operationHash: "",
+    maintenanceResult: null,
+    journal: null,
+    selectedNamespaces: [],
+    includeExcluded: false,
+    migrationDecisions: {},
+    proposalChanges: [],
     requests: {},
     busy: [],
     errors: {},
@@ -210,11 +300,12 @@ function clearRenamePreview(model: Model): Model {
 type Result = Update.Return<Model, Message>;
 type Commands = Array<Command.Command<Message>>;
 const done = (model: Model, commands: Commands = []): Result => ({ model, commands });
+const doneMemory = (model: Model): Result => done(model, [keepMemoryWorkspace(model)]);
 export function issue<K extends keyof Responses>(
   model: Model,
   kind: K,
   endpoint: string,
-  params: Record<string, string | number | undefined> = {},
+  params: Record<string, string | number | boolean | string[] | undefined> = {},
   body?: unknown,
   method = "GET",
   lane: string = kind,
@@ -256,6 +347,8 @@ function route(model: Model): Command.Command<Message> {
     name: "RememberLocation",
     effect: Effect.sync(() => {
       const params = new URLSearchParams({ bundle: model.bundle });
+      model.selectedNamespaces.forEach((name) => params.append("namespace", name));
+      if (model.includeExcluded) params.set("includeExcluded", "true");
       if (model.desiredPath) params.set("path", model.desiredPath);
       history.pushState(
         null,
@@ -312,6 +405,10 @@ function recovery(model: Model): Command.Command<Message> {
         const valid =
           value &&
           typeof value.raw === "string" &&
+          (value.fields === undefined ||
+            (value.fields &&
+              typeof value.fields === "object" &&
+              Object.values(value.fields).every((item) => typeof item === "string"))) &&
           typeof value.original === "string" &&
           typeof value.path === "string" &&
           value.bundle === model.bundle &&
@@ -366,17 +463,41 @@ function graphRequest(model: Model): Result {
     path: /(?:^|\/)(?:index|log)\.md$/.test(model.desiredPath)
       ? undefined
       : model.desiredPath || undefined,
+    namespace: model.selectedNamespaces,
+    includeExcluded: model.includeExcluded,
     depth: model.graphDepth,
     limit: model.graphLimit,
   });
 }
 function refresh(model: Model): Result {
   return combine({ ...model, validation: null }, [
-    (m) => issue(m, "list", "list", { bundle: m.bundle }),
+    (m) =>
+      issue(m, "list", "list", {
+        bundle: m.bundle,
+        namespace: m.selectedNamespaces,
+        includeExcluded: m.includeExcluded,
+      }),
+    ...(model.bundle
+      ? [
+          (m: Model) => issue(m, "profile", "profile", { bundle: m.bundle }),
+          (m: Model) => issue(m, "namespaces", "namespaces", { bundle: m.bundle }),
+        ]
+      : []),
+    ...(model.view === "maintenance" || model.view === "profile"
+      ? [
+          (m: Model) =>
+            issue(m, "audit", "audit", {
+              bundle: m.bundle,
+              namespace: m.view === "profile" ? undefined : m.selectedNamespaces,
+            }),
+        ]
+      : []),
     (m) =>
       m.bundle
         ? issue(m, "concept", m.desiredPath ? "concept" : "index", {
             bundle: m.bundle,
+            namespace: m.selectedNamespaces,
+            includeExcluded: m.includeExcluded,
             path: m.desiredPath || undefined,
           })
         : done(m),
@@ -393,7 +514,12 @@ function navigate(model: Model, intent: Intent): Result {
       notice:
         "The pull request is being created. Wait for its result before switching sources or views.",
     });
-  if (model.busy.includes("mutation"))
+  if (
+    model.busy.includes("mutation") ||
+    model.busy.includes("maintenanceResult") ||
+    model.busy.includes("maintenanceRecovery") ||
+    model.busy.includes("template")
+  )
     return done({
       ...model,
       notice: "The file is being saved. Wait for the result before leaving this document.",
@@ -410,10 +536,31 @@ function navigate(model: Model, intent: Intent): Result {
         }),
       },
     ]);
+  if (
+    intent._tag === "Namespaces" ||
+    intent._tag === "IncludeExcluded" ||
+    intent._tag === "RecallAll"
+  ) {
+    const next =
+      intent._tag === "Namespaces"
+        ? {
+            ...model,
+            selectedNamespaces: model.selectedNamespaces.includes(intent.name)
+              ? model.selectedNamespaces.filter((name) => name !== intent.name)
+              : [...model.selectedNamespaces, intent.name],
+          }
+        : intent._tag === "IncludeExcluded"
+          ? { ...model, includeExcluded: intent.value }
+          : { ...model, selectedNamespaces: [] };
+    const result = refresh({ ...next, search: null });
+    return { ...result, commands: [...(result.commands ?? []), route(next)] };
+  }
   if (intent._tag === "Search") {
     const next = { ...model, view: "wiki" as const, draft: null, conflict: null };
     const result = issue(next, "search", "search", {
       bundle: next.bundle,
+      namespace: next.selectedNamespaces,
+      includeExcluded: next.includeExcluded,
       q: next.query,
       limit: 10,
       offset: intent.offset ?? 0,
@@ -443,6 +590,7 @@ function navigate(model: Model, intent: Intent): Result {
       recovery: null,
       conflict: null,
       view: "wiki",
+      disclosures: { ...model.disclosures, "raw-editor": true },
       notice: "",
       errors: {},
     });
@@ -488,18 +636,46 @@ function navigate(model: Model, intent: Intent): Result {
       view: url.pathname === "/graph" ? "graph" : "wiki",
       bundle: url.searchParams.get("bundle") ?? model.bundle,
       desiredPath: url.searchParams.get("path") ?? "",
+      selectedNamespaces: url.searchParams.getAll("namespace"),
+      includeExcluded: url.searchParams.get("includeExcluded") === "true",
       fragment: decodeURIComponent(url.hash.slice(1)),
       concept: null,
     };
   }
   const result =
     intent._tag === "Index"
-      ? issue(next, "concept", "index", { bundle: next.bundle, path: intent.path || undefined })
+      ? issue(next, "concept", "index", {
+          bundle: next.bundle,
+          path: intent.path || undefined,
+          namespace: next.selectedNamespaces,
+          includeExcluded: next.includeExcluded,
+        })
       : refresh(next);
-  return { ...result, commands: [...(result.commands ?? []), route(next)] };
+  return {
+    ...result,
+    commands: [
+      ...(result.commands ?? []),
+      ...(model.bundle !== next.bundle ? [restoreMemoryWorkspace(next)] : []),
+      route(next),
+    ],
+  };
 }
 export function update(model: Model, message: Message): Result {
-  if (["Open", "Scope", "View", "New", "Cancel", "Index", "Route", "Search"].includes(message._tag))
+  if (
+    [
+      "Open",
+      "Scope",
+      "View",
+      "New",
+      "Cancel",
+      "Index",
+      "Route",
+      "Search",
+      "Namespaces",
+      "IncludeExcluded",
+      "RecallAll",
+    ].includes(message._tag)
+  )
     return navigate(model, message as Intent);
   switch (message._tag) {
     case "Loaded": {
@@ -513,7 +689,95 @@ export function update(model: Model, message: Message): Result {
             message.value.bundles[0]?.name ??
             "";
           const result = refresh({ ...next, context: message.value, bundle });
-          return { ...result, commands: [...(result.commands ?? []), recovery(result.model)] };
+          return {
+            ...result,
+            commands: [
+              ...(result.commands ?? []),
+              recovery(result.model),
+              restoreMemoryWorkspace(result.model),
+            ],
+          };
+        }
+        case "profile":
+          return message.value.bundle === model.bundle
+            ? done({ ...next, profile: message.value })
+            : done(next);
+        case "namespaces":
+          return message.value.bundle === model.bundle
+            ? done({ ...next, namespaces: message.value })
+            : done(next);
+        case "bootstrap":
+          return done(next);
+        case "audit":
+          return done({ ...next, audit: message.value });
+        case "maintenanceRecovery":
+          return doneMemory({
+            ...next,
+            journal: message.value,
+            maintenancePreview: message.value.preview,
+            operationHash: message.value.previewHash,
+            notice: message.value.lockRecovered
+              ? `Interrupted operation lock recovered. Recovery copy: ${message.value.lockRecoveryPath ?? "saved"}. Review the journal before applying again.`
+              : "No interrupted lock required recovery. Review the journal before continuing.",
+          });
+        case "journal":
+          return message.value.bundle === model.bundle
+            ? doneMemory({
+                ...next,
+                journal: message.value,
+                maintenancePreview: message.value.preview,
+                operationHash: message.value.previewHash,
+              })
+            : done(next);
+        case "maintenancePreview":
+          return message.value.bundle === model.bundle
+            ? doneMemory({
+                ...next,
+                maintenancePreview: message.value,
+                operationHash: message.value.previewHash,
+                errors: Object.fromEntries(
+                  Object.entries(next.errors).filter(
+                    ([lane]) =>
+                      !["maintenanceResult", "journal", "maintenanceRecovery"].includes(lane),
+                  ),
+                ),
+                maintenanceResult: null,
+                journal: null,
+              })
+            : done(next);
+        case "maintenanceResult": {
+          if (message.value.bundle !== model.bundle) return done(next);
+          const result = refresh({
+            ...next,
+            maintenanceResult: message.value,
+            operationHash: message.value.previewHash,
+            notice: `Applied ${message.value.changedPaths.length} files. Recovery journal: ${message.value.journalPath}`,
+          });
+          return {
+            ...result,
+            commands: [...(result.commands ?? []), keepMemoryWorkspace(result.model)],
+          };
+        }
+        case "template": {
+          if (message.value.bundle !== model.bundle) return done(next);
+          const result = navigate(next, { _tag: "New" });
+          if (!result.model.draft) return result;
+          const draft = {
+            ...result.model.draft,
+            raw: message.value.raw,
+            path: model.memoryForm.path ?? "",
+          };
+          return done(
+            {
+              ...result.model,
+              draft,
+              disclosures: {
+                ...result.model.disclosures,
+                "raw-editor": !structuredMemory(draft.raw),
+              },
+            },
+            [persist(draft)],
+          );
         }
         case "list":
           if (message.value.concepts.some((concept) => concept.bundle !== model.bundle))
@@ -552,6 +816,11 @@ export function update(model: Model, message: Message): Result {
           const result = {
             ...next,
             concept: message.value,
+            memoryForm:
+              model.concept?.path === message.value.path &&
+              model.concept.hash === message.value.hash
+                ? next.memoryForm
+                : documentForm(next.memoryForm, message.value),
             desiredPath: message.value.path,
             conflict:
               message.lane === "restore" &&
@@ -688,6 +957,79 @@ export function update(model: Model, message: Message): Result {
         : model.context
           ? refresh(model)
           : issue(model, "context", "context");
+    case "MemoryField": {
+      if (!model.draft) return done(model);
+      const draft = {
+        ...model.draft,
+        raw: editField(model.draft.raw, message.field, message.value),
+        fields: { ...model.draft.fields, [message.field]: message.value },
+        preview: false,
+      };
+      return done({ ...model, draft }, [persist(draft)]);
+    }
+    case "MemoryForm":
+      return doneMemory({
+        ...(proposalFields.includes(message.field) ? invalidateMemoryPreview(model) : model),
+        memoryForm: { ...model.memoryForm, [message.field]: message.value },
+        maintenancePreview: [
+          "reason",
+          "purpose",
+          "allowNamespaceChange",
+          "policyNamespaces",
+          "policyTopics",
+          "taskRetention",
+          "reviewInterval",
+          "goldReview",
+        ].includes(message.field)
+          ? null
+          : model.maintenancePreview,
+      });
+    case "MigrationField":
+      return doneMemory({
+        ...invalidateMemoryPreview(model),
+        migrationDecisions: {
+          ...model.migrationDecisions,
+          [message.path]: {
+            ...model.migrationDecisions[message.path],
+            [message.field]: message.value,
+          },
+        },
+        maintenancePreview: null,
+      });
+    case "ProposalAdd":
+      return doneMemory({
+        ...invalidateMemoryPreview(model),
+        proposalChanges: [...model.proposalChanges, { path: "", raw: "" }],
+        maintenancePreview: null,
+      });
+    case "ProposalRemove":
+      return doneMemory({
+        ...invalidateMemoryPreview(model),
+        proposalChanges: model.proposalChanges.filter((_, index) => index !== message.index),
+        maintenancePreview: null,
+      });
+    case "ProposalChange":
+      return doneMemory({
+        ...invalidateMemoryPreview(model),
+        proposalChanges: model.proposalChanges.map((change, index) =>
+          index === message.index ? { ...change, [message.field]: message.value } : change,
+        ),
+        maintenancePreview: null,
+      });
+    case "MemoryWorkspaceRecovery":
+      return message.bundle === model.bundle && message.root === bundleRoot(model)
+        ? done({
+            ...model,
+            ...message.value,
+            memoryForm: { ...model.memoryForm, ...message.value.memoryForm },
+          })
+        : done(model);
+    case "MemoryAction":
+      return memoryAction(model, message.action);
+    case "Disclosure":
+      return model.disclosures[message.key] === message.value
+        ? done(model)
+        : done({ ...model, disclosures: { ...model.disclosures, [message.key]: message.value } });
     case "Query":
       return done({ ...model, query: message.value });
     case "ListPage":
@@ -708,13 +1050,27 @@ export function update(model: Model, message: Message): Result {
         preview: false,
         referrers: model.concept.backlinks,
       };
-      return done({ ...model, draft, conflict: null, recovery: null, notice: "", errors: {} }, [
-        persist(draft),
-      ]);
+      return done(
+        {
+          ...model,
+          draft,
+          disclosures: { ...model.disclosures, "raw-editor": !structuredMemory(draft.raw) },
+          conflict: null,
+          recovery: null,
+          notice: "",
+          errors: {},
+        },
+        [persist(draft)],
+      );
     }
     case "Draft": {
       if (!model.draft) return done(model);
-      const draft = { ...model.draft, [message.field]: message.value, preview: false };
+      const draft = {
+        ...model.draft,
+        [message.field]: message.value,
+        ...(message.field === "raw" ? { fields: undefined } : {}),
+        preview: false,
+      };
       return done({ ...clearRenamePreview(model), draft }, [persist(draft, model.draft)]);
     }
     case "UpdateLinks":
@@ -862,6 +1218,7 @@ export function update(model: Model, message: Message): Result {
         concept: null,
         desiredPath: draft.path,
         view: "wiki" as const,
+        disclosures: { ...model.disclosures, "raw-editor": !structuredMemory(draft.raw) },
       };
       return draft.expectedHash === null
         ? done(next, [route(next)])
@@ -965,4 +1322,284 @@ export function update(model: Model, message: Message): Result {
       return done(model);
   }
   return done(model);
+}
+
+function memoryAction(
+  model: Model,
+  action: Extract<Message, { _tag: "MemoryAction" }>["action"],
+): Result {
+  if (
+    dirty(model) ||
+    model.busy.includes("mutation") ||
+    model.busy.includes("maintenanceResult") ||
+    model.busy.includes("maintenanceRecovery")
+  )
+    return done({
+      ...model,
+      notice: "Save or cancel your draft and wait for the current operation before continuing.",
+    });
+  const f = model.memoryForm;
+  const base = model.concept
+    ? {
+        bundle: model.bundle,
+        path: model.concept.path,
+        expectedHash: model.concept.hash,
+        authorizePersonal: true,
+      }
+    : null;
+  const lines = (value = "") =>
+    value
+      .split("\n")
+      .map((item) => item.trim())
+      .filter(Boolean);
+  if (action === "template")
+    return issue(
+      model,
+      "template",
+      "template",
+      {},
+      {
+        bundle: model.bundle,
+        kind: f.kind,
+        stage: f.stage,
+        namespace: f.namespace || "shared",
+        title: f.title ?? "",
+        description: f.description ?? "",
+        tags: (f.tags ?? "")
+          .split(",")
+          .map((item) => item.trim())
+          .filter(Boolean),
+        actor: f.actor,
+        occurredAt: f.occurredAt || undefined,
+        sources: lines(f.sources),
+      },
+      "POST",
+    );
+  if (action === "review" && base)
+    return issue(
+      model,
+      "mutation",
+      "review",
+      {},
+      {
+        ...base,
+        decision: f.decision,
+        actor: f.actor,
+        reason: f.reviewReason ?? "",
+        operator: true,
+      },
+      "POST",
+    );
+  if (action === "verify" && base)
+    return issue(
+      model,
+      "mutation",
+      "verify",
+      {},
+      { ...base, actor: f.machineActor || "machine:operator-check", method: f.method ?? "" },
+      "POST",
+    );
+  if (action === "lifecycle" && base)
+    return issue(
+      model,
+      "mutation",
+      "lifecycle",
+      {},
+      {
+        ...base,
+        action: f.lifecycleAction,
+        at: f.lifecycleAt || undefined,
+        replacement: f.replacement || undefined,
+        reason: f.lifecycleReason || undefined,
+      },
+      "POST",
+    );
+  if (action === "task" && base) {
+    const memory = model.concept?.metadata.memory as { task?: { reference?: string } } | undefined;
+    return issue(
+      model,
+      "mutation",
+      "task",
+      {},
+      {
+        ...base,
+        task: {
+          reference: f.taskReference || memory?.task?.reference || "",
+          state: f.taskState,
+          ...(f.completedAt ? { completed_at: f.completedAt } : {}),
+        },
+        ...(f.retentionDays !== undefined
+          ? { retentionDays: f.retentionDays ? Number(f.retentionDays) : null }
+          : {}),
+        ...(f.retentionReason !== undefined ? { retentionReason: f.retentionReason || null } : {}),
+      },
+      "POST",
+    );
+  }
+  if (action === "proposal")
+    return issue(
+      model,
+      "maintenancePreview",
+      "maintenance/preview",
+      {},
+      {
+        version: 1,
+        bundle: model.bundle,
+        purpose: f.purpose,
+        reason: f.reason ?? "",
+        allowNamespaceChange: f.allowNamespaceChange === "true",
+        changes: model.proposalChanges.map((change) => ({
+          ...change,
+          raw: change.raw || null,
+          expectedHash:
+            model.audit?.concepts.find((item) => item.path === change.path)?.hash ?? null,
+        })),
+      },
+      "POST",
+    );
+  if (action === "migration") {
+    const decisions = Object.fromEntries(
+      Object.entries(model.migrationDecisions).map(([path, fields]) => {
+        const entries = Object.fromEntries(
+          Object.entries(fields)
+            .filter(
+              ([field, value]) =>
+                value !== "" && !["taskReference", "taskState", "completedAt"].includes(field),
+            )
+            .map(([field, value]) => [
+              field,
+              field === "derivedFrom"
+                ? lines(value).map((line) => {
+                    const [resource, content_hash] = line.split(/\s+/);
+                    return { resource, content_hash };
+                  })
+                : field === "tags"
+                  ? value
+                      .split(",")
+                      .map((item) => item.trim())
+                      .filter(Boolean)
+                  : ["sources", "prerequisites", "replaces"].includes(field)
+                    ? lines(value)
+                    : value,
+            ]),
+        );
+        return [
+          path,
+          {
+            ...entries,
+            ...(fields.taskReference
+              ? {
+                  task: {
+                    reference: fields.taskReference,
+                    state: fields.taskState || "open",
+                    ...(fields.completedAt ? { completed_at: fields.completedAt } : {}),
+                  },
+                }
+              : {}),
+          },
+        ];
+      }),
+    );
+    const policy = {
+      ...(f.policyNamespaces !== undefined
+        ? {
+            namespaces: (f.policyNamespaces ?? "")
+              .split(",")
+              .map((item) => item.trim())
+              .filter(Boolean),
+          }
+        : {}),
+      ...(f.policyTopics !== undefined
+        ? {
+            topics: (f.policyTopics ?? "")
+              .split(",")
+              .map((item) => item.trim())
+              .filter(Boolean),
+          }
+        : {}),
+      ...(f.taskRetention ? { task_retention_days: Number(f.taskRetention) } : {}),
+      ...(f.reviewInterval ? { review_interval_days: Number(f.reviewInterval) } : {}),
+      ...(f.goldReview ? { gold_review: f.goldReview } : {}),
+    };
+    return issue(
+      model,
+      "maintenancePreview",
+      "migration/preview",
+      {},
+      { bundle: model.bundle, policy, decisions },
+      "POST",
+    );
+  }
+  if (action === "apply" && model.maintenancePreview && !model.maintenancePreview.unresolved.length)
+    return issue(
+      model,
+      "maintenanceResult",
+      model.maintenancePreview.purpose === "migration" ? "migration/apply" : "maintenance/apply",
+      {},
+      { preview: model.maintenancePreview, authorizePersonal: true },
+      "POST",
+    );
+  if (action === "recoverBatch" && model.journal)
+    return issue(
+      model,
+      "maintenanceRecovery",
+      "maintenance/recover",
+      {},
+      { bundle: model.bundle, previewHash: model.journal.previewHash, authorizePersonal: true },
+      "POST",
+    );
+  if (
+    action === "journal" &&
+    (model.memoryForm.journalHash || model.operationHash || model.maintenancePreview)
+  )
+    return issue(model, "journal", "maintenance/journal", {
+      bundle: model.bundle,
+      previewHash:
+        model.memoryForm.journalHash ||
+        model.operationHash ||
+        model.maintenancePreview!.previewHash,
+    });
+  return done(model);
+}
+
+const proposalFields = [
+  "reason",
+  "purpose",
+  "allowNamespaceChange",
+  "policyNamespaces",
+  "policyTopics",
+  "taskRetention",
+  "reviewInterval",
+  "goldReview",
+];
+function invalidateMemoryPreview(model: Model): Model {
+  return {
+    ...model,
+    maintenancePreview: null,
+    requests: Object.fromEntries(
+      Object.entries(model.requests).filter(([lane]) => lane !== "maintenancePreview"),
+    ),
+    busy: model.busy.filter((lane) => lane !== "maintenancePreview"),
+  };
+}
+function documentForm(form: Record<string, string>, concept: Concept): Record<string, string> {
+  const memory = concept.metadata.memory as Record<string, unknown> | undefined;
+  const task = memory?.task as Record<string, unknown> | undefined;
+  const text = (value: unknown) =>
+    typeof value === "string" || typeof value === "number" ? String(value) : "";
+  return {
+    ...Object.fromEntries(Object.entries(form).filter(([key]) => !documentFields.includes(key))),
+    taskReference: text(task?.reference),
+    taskState: text(task?.state) || "open",
+    completedAt: text(task?.completed_at),
+    retentionDays: text(task?.retention_days),
+    retentionReason: text(memory?.retention_reason),
+    lifecycleAction: "archive",
+    lifecycleAt: "",
+    replacement: text(memory?.replaced_by),
+    lifecycleReason: "",
+    decision: "approve",
+    reviewReason: "",
+    method: "",
+  };
 }
