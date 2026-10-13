@@ -100,7 +100,7 @@ const previewChange = Schema.Struct({
   before: Schema.NullOr(Schema.String),
   afterHash: Schema.NullOr(Schema.String),
 });
-const maintenancePreview = Schema.Struct({
+export const maintenancePreviewSchema = Schema.Struct({
   version: Schema.Literal(1),
   bundle: Schema.String,
   root: Schema.String,
@@ -121,7 +121,7 @@ const journal = Schema.Struct({
   previewHash: Schema.String,
   journalPath: Schema.String,
   state: Schema.Literals(["prepared", "applying", "applied", "conflict"]),
-  preview: maintenancePreview,
+  preview: maintenancePreviewSchema,
   paths: Schema.Array(
     Schema.Struct({
       path: Schema.String,
@@ -165,7 +165,7 @@ const schemas = {
     concepts: Schema.Array(Schema.Struct(summary)),
     diagnostics: Schema.Array(diagnostic),
   }),
-  maintenancePreview,
+  maintenancePreview: maintenancePreviewSchema,
   maintenanceResult: Schema.Struct({
     version: Schema.Literal(1),
     bundle: Schema.String,

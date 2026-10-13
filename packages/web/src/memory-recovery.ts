@@ -1,8 +1,28 @@
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import type { Command } from "foldkit";
+import { maintenancePreviewSchema } from "./api.ts";
 import type { Model, Message } from "./model.ts";
 
-export type MemoryWorkspace = Pick<Model, "memoryForm" | "migrationDecisions" | "proposalChanges">;
+export const documentFields = [
+  "taskReference",
+  "taskState",
+  "completedAt",
+  "retentionDays",
+  "retentionReason",
+  "lifecycleAction",
+  "lifecycleAt",
+  "replacement",
+  "lifecycleReason",
+  "method",
+  "decision",
+  "reviewReason",
+];
+const commonFields = (fields: Record<string, string>) =>
+  Object.fromEntries(Object.entries(fields).filter(([name]) => !documentFields.includes(name)));
+export type MemoryWorkspace = Pick<
+  Model,
+  "memoryForm" | "migrationDecisions" | "proposalChanges" | "maintenancePreview" | "operationHash"
+>;
 const identity = (model: Model) => ({
   bundle: model.bundle,
   root: model.context?.bundles.find((item) => item.name === model.bundle)?.root ?? "",
@@ -25,7 +45,9 @@ export function keepMemoryWorkspace(model: Model): Command.Command<Message> {
             key(source),
             JSON.stringify({
               ...source,
-              memoryForm: model.memoryForm,
+              memoryForm: commonFields(model.memoryForm),
+              maintenancePreview: model.maintenancePreview,
+              operationHash: model.operationHash,
               migrationDecisions: model.migrationDecisions,
               proposalChanges: model.proposalChanges,
             }),
@@ -62,11 +84,24 @@ export function restoreMemoryWorkspace(model: Model): Command.Command<Message> {
               strings(change) && typeof change.path === "string" && typeof change.raw === "string",
           )
         ) {
+          const preview = value.maintenancePreview
+            ? Schema.decodeUnknownSync(maintenancePreviewSchema)(value.maintenancePreview)
+            : null;
+          const validPreview =
+            preview &&
+            preview.bundle === source.bundle &&
+            preview.root === source.root &&
+            preview.previewHash === value.operationHash
+              ? preview
+              : null;
+          const operationHash = typeof value.operationHash === "string" ? value.operationHash : "";
           return {
             _tag: "MemoryWorkspaceRecovery",
             ...source,
             value: {
-              memoryForm: value.memoryForm,
+              memoryForm: commonFields(value.memoryForm),
+              maintenancePreview: validPreview,
+              operationHash,
               migrationDecisions: value.migrationDecisions,
               proposalChanges: value.proposalChanges,
             },

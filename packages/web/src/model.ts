@@ -15,6 +15,7 @@ import {
   keepMemoryWorkspace,
   restoreMemoryWorkspace,
   type MemoryWorkspace,
+  documentFields,
 } from "./memory-recovery.ts";
 import { editField, structuredMemory, type MemoryField } from "./memory-editor.ts";
 import { boundedGraph } from "./content.ts";
@@ -119,6 +120,7 @@ export interface Model {
   includeExcluded: boolean;
   audit: Responses["audit"] | null;
   maintenancePreview: Responses["maintenancePreview"] | null;
+  operationHash: string;
   maintenanceResult: Responses["maintenanceResult"] | null;
   journal: Responses["journal"] | null;
   memoryForm: Record<string, string>;
@@ -173,6 +175,7 @@ export function initialModel(): Model {
     includeExcluded: params.get("includeExcluded") === "true",
     audit: null,
     maintenancePreview: null,
+    operationHash: "",
     maintenanceResult: null,
     journal: null,
     memoryForm: {
@@ -255,6 +258,7 @@ function clearScope(model: Model, bundle: string): Model {
     namespaces: null,
     audit: null,
     maintenancePreview: null,
+    operationHash: "",
     maintenanceResult: null,
     journal: null,
     selectedNamespaces: [],
@@ -707,23 +711,30 @@ export function update(model: Model, message: Message): Result {
         case "audit":
           return done({ ...next, audit: message.value });
         case "maintenanceRecovery":
-          return done({
+          return doneMemory({
             ...next,
             journal: message.value,
             maintenancePreview: message.value.preview,
+            operationHash: message.value.previewHash,
             notice: message.value.lockRecovered
               ? `Interrupted operation lock recovered. Recovery copy: ${message.value.lockRecoveryPath ?? "saved"}. Review the journal before applying again.`
               : "No interrupted lock required recovery. Review the journal before continuing.",
           });
         case "journal":
           return message.value.bundle === model.bundle
-            ? done({ ...next, journal: message.value, maintenancePreview: message.value.preview })
+            ? doneMemory({
+                ...next,
+                journal: message.value,
+                maintenancePreview: message.value.preview,
+                operationHash: message.value.previewHash,
+              })
             : done(next);
         case "maintenancePreview":
           return message.value.bundle === model.bundle
-            ? done({
+            ? doneMemory({
                 ...next,
                 maintenancePreview: message.value,
+                operationHash: message.value.previewHash,
                 errors: Object.fromEntries(
                   Object.entries(next.errors).filter(
                     ([lane]) =>
@@ -734,12 +745,19 @@ export function update(model: Model, message: Message): Result {
                 journal: null,
               })
             : done(next);
-        case "maintenanceResult":
-          return refresh({
+        case "maintenanceResult": {
+          if (message.value.bundle !== model.bundle) return done(next);
+          const result = refresh({
             ...next,
             maintenanceResult: message.value,
+            operationHash: message.value.previewHash,
             notice: `Applied ${message.value.changedPaths.length} files. Recovery journal: ${message.value.journalPath}`,
           });
+          return {
+            ...result,
+            commands: [...(result.commands ?? []), keepMemoryWorkspace(result.model)],
+          };
+        }
         case "template": {
           if (message.value.bundle !== model.bundle) return done(next);
           const result = navigate(next, { _tag: "New" });
@@ -798,6 +816,11 @@ export function update(model: Model, message: Message): Result {
           const result = {
             ...next,
             concept: message.value,
+            memoryForm:
+              model.concept?.path === message.value.path &&
+              model.concept.hash === message.value.hash
+                ? next.memoryForm
+                : documentForm(next.memoryForm, message.value),
             desiredPath: message.value.path,
             conflict:
               message.lane === "restore" &&
@@ -946,7 +969,7 @@ export function update(model: Model, message: Message): Result {
     }
     case "MemoryForm":
       return doneMemory({
-        ...model,
+        ...(proposalFields.includes(message.field) ? invalidateMemoryPreview(model) : model),
         memoryForm: { ...model.memoryForm, [message.field]: message.value },
         maintenancePreview: [
           "reason",
@@ -963,7 +986,7 @@ export function update(model: Model, message: Message): Result {
       });
     case "MigrationField":
       return doneMemory({
-        ...model,
+        ...invalidateMemoryPreview(model),
         migrationDecisions: {
           ...model.migrationDecisions,
           [message.path]: {
@@ -975,19 +998,19 @@ export function update(model: Model, message: Message): Result {
       });
     case "ProposalAdd":
       return doneMemory({
-        ...model,
+        ...invalidateMemoryPreview(model),
         proposalChanges: [...model.proposalChanges, { path: "", raw: "" }],
         maintenancePreview: null,
       });
     case "ProposalRemove":
       return doneMemory({
-        ...model,
+        ...invalidateMemoryPreview(model),
         proposalChanges: model.proposalChanges.filter((_, index) => index !== message.index),
         maintenancePreview: null,
       });
     case "ProposalChange":
       return doneMemory({
-        ...model,
+        ...invalidateMemoryPreview(model),
         proposalChanges: model.proposalChanges.map((change, index) =>
           index === message.index ? { ...change, [message.field]: message.value } : change,
         ),
@@ -995,7 +1018,11 @@ export function update(model: Model, message: Message): Result {
       });
     case "MemoryWorkspaceRecovery":
       return message.bundle === model.bundle && message.root === bundleRoot(model)
-        ? done({ ...model, ...message.value })
+        ? done({
+            ...model,
+            ...message.value,
+            memoryForm: { ...model.memoryForm, ...message.value.memoryForm },
+          })
         : done(model);
     case "MemoryAction":
       return memoryAction(model, message.action);
@@ -1354,7 +1381,13 @@ function memoryAction(
       "mutation",
       "review",
       {},
-      { ...base, decision: f.decision, actor: f.actor, reason: f.reason ?? "", operator: true },
+      {
+        ...base,
+        decision: f.decision,
+        actor: f.actor,
+        reason: f.reviewReason ?? "",
+        operator: true,
+      },
       "POST",
     );
   if (action === "verify" && base)
@@ -1515,10 +1548,58 @@ function memoryAction(
       { bundle: model.bundle, previewHash: model.journal.previewHash, authorizePersonal: true },
       "POST",
     );
-  if (action === "journal" && (model.memoryForm.journalHash || model.maintenancePreview))
+  if (
+    action === "journal" &&
+    (model.memoryForm.journalHash || model.operationHash || model.maintenancePreview)
+  )
     return issue(model, "journal", "maintenance/journal", {
       bundle: model.bundle,
-      previewHash: model.memoryForm.journalHash || model.maintenancePreview!.previewHash,
+      previewHash:
+        model.memoryForm.journalHash ||
+        model.operationHash ||
+        model.maintenancePreview!.previewHash,
     });
   return done(model);
+}
+
+const proposalFields = [
+  "reason",
+  "purpose",
+  "allowNamespaceChange",
+  "policyNamespaces",
+  "policyTopics",
+  "taskRetention",
+  "reviewInterval",
+  "goldReview",
+];
+function invalidateMemoryPreview(model: Model): Model {
+  return {
+    ...model,
+    maintenancePreview: null,
+    requests: Object.fromEntries(
+      Object.entries(model.requests).filter(([lane]) => lane !== "maintenancePreview"),
+    ),
+    busy: model.busy.filter((lane) => lane !== "maintenancePreview"),
+  };
+}
+function documentForm(form: Record<string, string>, concept: Concept): Record<string, string> {
+  const memory = concept.metadata.memory as Record<string, unknown> | undefined;
+  const task = memory?.task as Record<string, unknown> | undefined;
+  const text = (value: unknown) =>
+    typeof value === "string" || typeof value === "number" ? String(value) : "";
+  return {
+    ...Object.fromEntries(Object.entries(form).filter(([key]) => !documentFields.includes(key))),
+    taskReference: text(task?.reference),
+    taskState: text(task?.state) || "open",
+    completedAt: text(task?.completed_at),
+    retentionDays: text(task?.retention_days),
+    retentionReason: text(memory?.retention_reason),
+    lifecycleAction: "archive",
+    lifecycleAt: "",
+    replacement: text(memory?.replaced_by),
+    lifecycleReason: "",
+    decision: "approve",
+    reviewReason: "",
+    method: "",
+  };
 }
