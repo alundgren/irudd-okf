@@ -4,7 +4,7 @@ import { OkfError } from './contracts.ts';
 import { operation, hash, canonicalDirectory, cleanPath } from './files.ts';
 import { parseConcept, reserved, resolveLink } from './parser.ts';
 import { decode, TemplateSchema, ReviewSchema, VerifySchema, TaskRequestSchema, LifecycleSchema, ProposalSchema, ApplySchema, MigrationSchema, InspectSchema, RecoverySchema } from './schemas.ts';
-import { assertDate, assertNamespace, contentDigest, dateValue, DEFAULT_MEMORY_POLICY, discoverProfile, derivations, metadataLinks, namespaceOf, patchMetadata, policyRaw, record, requireProfile, strings, templateRaw, projectDocuments } from './memory.ts';
+import { assertDate, assertNamespace, contentDigest, dateValue, DEFAULT_MEMORY_POLICY, discoverProfile, derivations, metadataLinks, namespaceOf, patchMetadata, policyRaw, record, requireProfile, strings, templateRaw, projectDocuments, isMemoryPolicyPath } from './memory.ts';
 import { applyJournal, previewDigest, inspectJournal, recoverJournalLock } from './maintenance.ts';
 
 export interface MemoryOperations {
@@ -24,7 +24,7 @@ export function attachMemoryOperations(store: Store, runtime: MemoryOperations):
     runtime.writable(runtime.select(request.bundle), request);
     requireProfile(await profile(request.bundle));
     const concept = await runtime.read(request.bundle, request.path);
-    if (reserved(concept.path) || concept.path === 'memory-policy.md') throw new OkfError('INVALID_REQUEST', 'This operation applies to memory concepts.');
+    if (reserved(concept.path) || isMemoryPolicyPath(concept.path)) throw new OkfError('INVALID_REQUEST', 'This operation applies to memory concepts.');
     if (concept.hash !== request.expectedHash) throw new OkfError('CONFLICT', 'The concept changed since it was read.', { expectedHash: request.expectedHash, actualHash: concept.hash });
     if (concept.malformed) throw new OkfError('MALFORMED_FRONTMATTER', 'Repair the raw document before structured memory operations.');
     return concept;
@@ -125,6 +125,7 @@ export function attachMemoryOperations(store: Store, runtime: MemoryOperations):
     const changes = proposal.changes.map(change => {
       digest(change.expectedHash);
       if (cleanPath(change.path) !== change.path) throw new OkfError('INVALID_PATH', 'Proposal paths must be canonical bundle-relative paths.');
+      if (isMemoryPolicyPath(change.path) && change.raw === null) throw new OkfError('MEMORY_POLICY_PROTECTED', 'The canonical memory policy cannot be deleted or moved through a proposal. Repair its raw contents in place.');
       if (!change.path.endsWith('.md')) throw new OkfError('INVALID_PATH', 'Proposal changes require Markdown documents.');
       const concept = documents.find(item => item.path === change.path);
       const before = concept?.raw ?? null;
@@ -160,19 +161,19 @@ export function attachMemoryOperations(store: Store, runtime: MemoryOperations):
     const bundle = runtime.select(request.bundle);
     const documents = await runtime.load(bundle.name);
     const existingProfile = discoverProfile(bundle.name, documents);
-    const originalPolicy = record(documents.find(item => item.path === 'memory-policy.md')?.metadata.memory_policy);
+    const originalPolicy = record(documents.find(item => isMemoryPolicyPath(item.path))?.metadata.memory_policy);
     const policy: MemoryPolicy = { ...DEFAULT_MEMORY_POLICY, ...originalPolicy, ...(existingProfile.policy ?? {}), ...(request.policy ?? {}), name: 'agent-memory', version: 1 };
     const policyConcept = parseConcept(bundle.name, 'memory-policy.md', policyRaw(policy));
     requireProfile(discoverProfile(bundle.name, [policyConcept]));
     const changes: MaintenanceProposal['changes'] = [];
     const unresolved: MigrationIssue[] = [];
-    const oldPolicy = documents.find(item => item.path === 'memory-policy.md');
+    const oldPolicy = documents.find(item => isMemoryPolicyPath(item.path));
     if (!oldPolicy) changes.push({ path: 'memory-policy.md', expectedHash: null, raw: policyConcept.raw });
     else if (existingProfile.mode !== 'memory' || request.policy) changes.push({ path: oldPolicy.path, expectedHash: oldPolicy.hash, raw: patchMetadata(oldPolicy.raw, [{ path: ['type'], value: 'Memory policy' }, ...Object.entries(policy).map(([key, value]) => ({ path: ['memory_policy', key], value }))]) });
     const root = documents.find(item => item.path === 'index.md');
     if (!root) changes.push({ path: 'index.md', expectedHash: null, raw: '---\nokf_version: "0.2"\n---\n\n# Knowledge\n\n- [Agent memory policy](memory-policy.md)\n' });
-    else if (!root.links.some(link => !link.external && link.target === 'memory-policy.md')) changes.push({ path: root.path, expectedHash: root.hash, raw: root.raw.trimEnd() + '\n\n## Memory policy\n\n- [Agent memory policy](memory-policy.md)\n' });
-    for (const concept of documents.filter(item => !reserved(item.path) && item.path !== 'memory-policy.md')) {
+    else if (!root.links.some(link => !link.external && isMemoryPolicyPath(link.target))) changes.push({ path: root.path, expectedHash: root.hash, raw: root.raw.trimEnd() + '\n\n## Memory policy\n\n- [Agent memory policy](memory-policy.md)\n' });
+    for (const concept of documents.filter(item => !reserved(item.path) && !isMemoryPolicyPath(item.path))) {
       const decision = request.decisions?.[concept.path] ?? {};
       if (decision.raw !== undefined) {
         const candidate = parseConcept(bundle.name, concept.path, decision.raw);
@@ -224,7 +225,7 @@ export function attachMemoryOperations(store: Store, runtime: MemoryOperations):
 }
 
 function validateProposal(preview: MaintenancePreview, documents: Concept[], now: Date, checkLinks = true): void {
-  if (preview.changes.some(change => change.path === 'memory-policy.md' && change.raw === null)) throw new OkfError('MEMORY_POLICY_PROTECTED', 'The canonical memory policy cannot be deleted or moved through a proposal. Repair its raw contents in place.');
+  if (preview.changes.some(change => isMemoryPolicyPath(change.path) && change.raw === null)) throw new OkfError('MEMORY_POLICY_PROTECTED', 'The canonical memory policy cannot be deleted or moved through a proposal. Repair its raw contents in place.');
   const diagnostics = preview.diagnostics;
   const report = (path: string, code: string, message: string) => diagnostics.push({ level: 'error', code, path, bundle: preview.bundle, message });
   const changed = new Map(preview.changes.map(change => [change.path, change]));
@@ -238,7 +239,7 @@ function validateProposal(preview: MaintenancePreview, documents: Concept[], now
     const before = changed.get(concept.path)!.before;
     const old = before === null ? undefined : parseConcept(preview.bundle, concept.path, before);
     for (const diagnostic of concept.diagnostics.filter(item => item.level === 'error')) diagnostics.push(diagnostic);
-    if (reserved(concept.path) || concept.path === 'memory-policy.md') continue;
+    if (reserved(concept.path) || isMemoryPolicyPath(concept.path)) continue;
     const namespace = namespaceOf(concept);
     if (profile.policy && !profile.policy.namespaces.includes(namespace)) report(concept.path, 'UNKNOWN_NAMESPACE', 'Proposal note namespace is not registered.');
     if (!preview.allowNamespaceChange && old && namespaceOf(old) !== namespace) report(concept.path, 'NAMESPACE_PROMOTION_REQUIRED', 'Namespace changes require explicit reviewed publication authorization.');

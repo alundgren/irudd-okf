@@ -7,7 +7,7 @@ import { OkfError, type Bundle, type Concept, type ConceptSummary, type Diagnost
 import { operation, guarded, scan, hash, absent, cleanPath, withLock, recovery, atomicReplace, atomicCreate, readRaw } from './files.ts';
 import { decode, WriteSchema, DeleteSchema, RenameSchema, RecallSchema, SearchOptionsSchema, GraphOptionsSchema } from './schemas.ts';
 import { attachMemoryOperations } from './memory-operations.ts';
-import { projectDocuments, discoverProfile, assertNamespace, metadataLinks, namespaceOf, patchMetadata, rewriteMetadataLinks, dateValue } from './memory.ts';
+import { projectDocuments, discoverProfile, assertNamespace, metadataLinks, namespaceOf, patchMetadata, rewriteMetadataLinks, dateValue, isMemoryPolicyPath } from './memory.ts';
 import { parseConcept, reserved, resolveLink } from './parser.ts';
 
 const summary = (concept: Concept): ConceptSummary => ({ bundle: concept.bundle, path: concept.path, title: concept.title, type: concept.type, description: concept.description, tags: [...concept.tags], hash: concept.hash, malformed: concept.malformed, ...(concept.memory ? { memory: structuredClone(concept.memory) } : {}) });
@@ -223,7 +223,7 @@ export function createStore(input: MemoryContext, options: StoreOptions = {}): S
       request = decode(RenameSchema, request);
       const bundle = select(context, request.bundle);
       const oldPath = cleanPath(request.path), newPath = cleanPath(request.newPath);
-      if (oldPath === 'memory-policy.md' || newPath === 'memory-policy.md') throw new OkfError('MEMORY_POLICY_PROTECTED', 'The canonical memory policy cannot be moved through structured operations. Repair its raw contents in place.');
+      if (isMemoryPolicyPath(oldPath) || isMemoryPolicyPath(newPath)) throw new OkfError('MEMORY_POLICY_PROTECTED', 'The canonical memory policy cannot be moved through structured operations. Repair its raw contents in place.');
       if (!newPath.endsWith('.md') || reserved(newPath) || reserved(oldPath)) throw new OkfError('INVALID_PATH', 'Rename applies to concept Markdown files.');
       const original = await requireHash(await guarded(bundle, oldPath), request.expectedHash);
       if (original === null) throw new OkfError('NOT_FOUND', 'The file does not exist.');
@@ -311,7 +311,7 @@ export function createStore(input: MemoryContext, options: StoreOptions = {}): S
     validate: (options: {bundle?: string; lint?: boolean} = {}) => operation(async () => {
       const documents = await load(options.bundle, options.lint);
       const diagnostics = documents.flatMap(concept => [ ...concept.diagnostics.filter(diagnostic => options.lint || diagnostic.level === 'error'), ...(options.lint ? concept.links.filter(link => link.broken).map(link => ({ level: 'warning' as const, code: 'BROKEN_LINK', path: concept.path, bundle: concept.bundle, message: `Unavailable link target: ${link.target}` })) : []) ]);
-      if (options.lint) diagnostics.push(...unindexedConcepts(documents), ...documents.flatMap(concept => concept.memory?.diagnostics ?? []), ...context.bundles.filter(bundle => !options.bundle || bundle.name === options.bundle).flatMap(bundle => discoverProfile(bundle.name, documents).diagnostics), ...documents.filter(concept => concept.path !== 'memory-policy.md' && concept.metadata.memory_policy !== undefined).map(concept => ({ level: 'warning' as const, code: 'EXTRA_MEMORY_POLICY', bundle: concept.bundle, path: concept.path, message: 'Only root memory-policy.md activates the memory profile.' })));
+      if (options.lint) diagnostics.push(...unindexedConcepts(documents), ...documents.flatMap(concept => concept.memory?.diagnostics ?? []), ...context.bundles.filter(bundle => !options.bundle || bundle.name === options.bundle).flatMap(bundle => discoverProfile(bundle.name, documents).diagnostics), ...documents.filter(concept => !isMemoryPolicyPath(concept.path) && concept.metadata.memory_policy !== undefined).map(concept => ({ level: 'warning' as const, code: 'EXTRA_MEMORY_POLICY', bundle: concept.bundle, path: concept.path, message: 'Only root memory-policy.md activates the memory profile.' })));
       return { version: 1, files: documents.length, errors: diagnostics.filter(item => item.level === 'error').length, warnings: diagnostics.filter(item => item.level === 'warning').length, diagnostics };
     }),
     save: (request: WriteRequest) => operation(() => save(decode(WriteSchema, request))),
@@ -324,7 +324,7 @@ export function createStore(input: MemoryContext, options: StoreOptions = {}): S
     writable(bundle, request);
     const documents = await load(bundle.name, false);
     const profile = discoverProfile(bundle.name, documents);
-    if (!reserved(request.path) && request.path !== 'memory-policy.md' && (profile.mode === 'memory' || request.namespace !== undefined)) {
+    if (!reserved(request.path) && !isMemoryPolicyPath(request.path) && (profile.mode === 'memory' || request.namespace !== undefined)) {
       const concept = parseConcept(bundle.name, request.path, request.raw);
       const explicit = typeof concept.metadata.memory === 'object' && concept.metadata.memory !== null ? (concept.metadata.memory as Record<string, unknown>).namespace : undefined;
       if (request.namespace !== undefined && explicit !== undefined && request.namespace !== explicit) throw new OkfError('NAMESPACE_CONFLICT', 'Write namespace argument conflicts with note metadata.');
@@ -350,7 +350,7 @@ export function createStore(input: MemoryContext, options: StoreOptions = {}): S
   async function remove(request: DeleteRequest): Promise<MutationResult> {
     const bundle = select(context, request.bundle);
     writable(bundle, request);
-    if (cleanPath(request.path) === 'memory-policy.md') throw new OkfError('MEMORY_POLICY_PROTECTED', 'The canonical memory policy cannot be deleted through structured operations. Repair its raw contents in place.');
+    if (isMemoryPolicyPath(cleanPath(request.path))) throw new OkfError('MEMORY_POLICY_PROTECTED', 'The canonical memory policy cannot be deleted through structured operations. Repair its raw contents in place.');
     const concept = await read(bundle.name, request.path);
     const profile = discoverProfile(bundle.name, await load(bundle.name));
     if (profile.mode === 'memory' && concept.backlinks.length) throw new OkfError('PROTECTED_EVIDENCE_LINK', 'This concept has index, backlink or source references. Preview a maintenance proposal with explicit repairs or archive the stable evidence instead.', { backlinks: concept.backlinks });
@@ -380,7 +380,7 @@ export function createStore(input: MemoryContext, options: StoreOptions = {}): S
     writable(bundle, request);
     const oldPath = cleanPath(request.path);
     const newPath = cleanPath(request.newPath);
-    if (oldPath === 'memory-policy.md' || newPath === 'memory-policy.md') throw new OkfError('MEMORY_POLICY_PROTECTED', 'The canonical memory policy cannot be moved through structured operations. Repair its raw contents in place.');
+    if (isMemoryPolicyPath(oldPath) || isMemoryPolicyPath(newPath)) throw new OkfError('MEMORY_POLICY_PROTECTED', 'The canonical memory policy cannot be moved through structured operations. Repair its raw contents in place.');
     if (!newPath.endsWith('.md') || reserved(newPath) || reserved(oldPath)) throw new OkfError('INVALID_PATH', 'Rename applies to concept Markdown files.');
     if (oldPath === newPath) return { version: 1, bundle: bundle.name, path: oldPath, hash: request.expectedHash, changedPaths: [] };
     return withLock(bundle.root, async () => {

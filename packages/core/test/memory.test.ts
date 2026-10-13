@@ -6,7 +6,7 @@ import { spawn } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { Effect } from 'effect';
 import { createStore, contentDigest, initializeBundle, type MemoryContext, type StoreOptions, type MemoryKind, type MaintenanceProposal, type MemoryPolicy } from '../src/index.ts';
-import { DEFAULT_MEMORY_POLICY, policyRaw, patchMetadata } from '../src/memory.ts';
+import { DEFAULT_MEMORY_POLICY, policyRaw, patchMetadata, isMemoryPolicyPath } from '../src/memory.ts';
 import { hash } from '../src/files.ts';
 import { previewDigest } from '../src/maintenance.ts';
 import { decode, TemplateSchema } from '../src/schemas.ts';
@@ -321,6 +321,21 @@ describe('safe maintenance and durable interruption recovery', () => {
 });
 
 describe('migration preservation and domain request validation', () => {
+  it('recognizes canonical policy case aliases on Windows and macOS while preserving Linux filenames', () => {
+    expect(isMemoryPolicyPath('MEMORY-POLICY.md','win32')).toBe(true);
+    expect(isMemoryPolicyPath('MEMORY-POLICY.md','darwin')).toBe(true);
+    expect(isMemoryPolicyPath('MEMORY-POLICY.md','linux')).toBe(false);
+    expect(isMemoryPolicyPath('topics/MEMORY-POLICY.md','win32')).toBe(false);
+    expect(isMemoryPolicyPath('memory-policy.md','linux')).toBe(true);
+  });
+  it.skipIf(!['win32','darwin'].includes(process.platform))('protects the initialized policy through filesystem case aliases', async () => {
+    const f=await fixture(); const policy=await run(f.store.read('repo','memory-policy.md'));
+    try { await fs.access(path.join(f.bundle,'MEMORY-POLICY.md')); } catch { return; }
+    const request={bundle:'repo',path:'MEMORY-POLICY.md',newPath:'ordinary.md',expectedHash:policy.hash,updateLinks:true};
+    for (const effect of [f.store.previewRename(request),f.store.rename(request),f.store.remove({bundle:'repo',path:request.path,expectedHash:policy.hash}),f.store.previewMaintenance(proposal([{path:request.path,expectedHash:policy.hash,raw:null}]))]) await expect(run(effect as Effect.Effect<unknown,unknown>)).rejects.toMatchObject({code:'MEMORY_POLICY_PROTECTED'});
+    expect((await run(f.store.profile('repo'))).mode).toBe('memory');
+    expect(await fs.readFile(path.join(f.bundle,'memory-policy.md'),'utf8')).toBe(policy.raw);
+  });
   it('emits unresolved decisions without fabricating classification, producer or evidence and preserves raw malformed/unknown YAML', async () => {
     const f=await fixture(); await fs.unlink(path.join(f.bundle,'memory-policy.md'));
     const legacy='---\ntype: Rule # retain comment\ncustom: { field: original }\n---\nDo the work.\n'; await f.write('legacy.md',legacy);
