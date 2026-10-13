@@ -436,7 +436,11 @@ describe('process termination and lock recovery', () => {
     const child=spawn(process.execPath,['--import','tsx',script],{cwd:process.cwd(),env:{...process.env,TSX_DISABLE_CACHE:'1'},stdio:['ignore','ignore','pipe']});
     let errorOutput='';child.stderr.on('data',chunk=>{errorOutput+=String(chunk);});
     const termination=await new Promise<{code:number|null;signal:string|null}>((resolve,reject)=>{child.once('error',reject);child.once('close',(code,signal)=>resolve({code,signal}));});
-    expect(termination.signal,errorOutput).toBe('SIGKILL');
+    if (process.platform === 'win32') {
+      expect(termination.signal,errorOutput).toBeNull();
+      expect(termination.code,errorOutput).not.toBeNull();
+      expect(termination.code,errorOutput).not.toBe(0);
+    } else expect(termination.signal,errorOutput).toBe('SIGKILL');
     const restarted=createStore(f.context);
     const inspected=await run(restarted.inspectMaintenance({bundle:'repo',previewHash:preview.previewHash}));
     expect(inspected.paths.map(item=>item.state)).toEqual(['applied','untouched']);
