@@ -203,6 +203,52 @@ The authoring checklist and navigation lint help maintain files and links.
 They do not guarantee that an agent will follow every instruction or organize
 notes well.
 
+## Agent memory profiles
+
+New bundles include a shared memory policy. It defines namespaces, topic tags,
+and lifetime defaults. Existing bundles stay readable and adopt the profile
+through an explicit migration preview. Read the policy before selecting
+namespaces:
+
+```sh
+irudd-okf bootstrap repo
+irudd-okf namespaces repo
+irudd-okf search "migration failures" --scope repo --namespace payments --namespace platform
+irudd-okf audit --scope repo
+```
+
+Each note has one namespace. Repeated read selections include their union plus
+shared memory. Writes without a destination are shared. Keep memory kind
+`procedural`, `episodic`, or `semantic` separate from processing stage `bronze`,
+`silver`, or `gold`, authorship, review, and lifetime.
+
+The CLI and wiki support templates, source revision tracking, verification,
+approval and rejection, task retention, expiration, archival, maintenance
+proposals, migration, and protected recovery. Approvals apply to the reviewed
+content revision. Expired notes leave normal recall but remain inspectable;
+their historical evidence does not disappear just because time passes.
+
+Install the portable personas for your existing scheduled agent runner:
+
+```sh
+irudd-okf skill install /path/to/agent-skills --name okf-librarian
+irudd-okf skill install /path/to/agent-skills --name okf-memory-reviewer
+```
+
+The librarian can audit, propose changes, or apply authorized maintenance. The
+reviewer assesses claims against their evidence and current revisions. Neither
+processing stage nor an agent check manufactures human approval.
+
+See the [complete memory guide](docs/agent-memory.md) for metadata, authoring,
+review, lifecycle, migration, recovery, and scheduling. After building, run the
+[synthetic example](examples/agent-memory/demo.mjs) in a temporary bundle:
+
+```sh
+node examples/agent-memory/demo.mjs build/irudd-okf
+```
+
+Add a destination argument outside the repository to retain the example bundle.
+
 ## Review memory edits as a PR
 
 When a bundle is in Git, the wiki shows changed memory paths. Select files,
