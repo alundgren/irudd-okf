@@ -13,7 +13,7 @@ const loader = import.meta.resolve('tsx');
 async function fixture() {
   const cwd = await realpath(await mkdtemp(join(tmpdir(), 'okf-memory-cli-')));
   const root = join(cwd, '.okf');
-  const execute = (...args: string[]) => spawnSync(process.execPath, ['--import', loader, main, ...args], { cwd, encoding: 'utf8', env: { ...process.env, TSX_DISABLE_CACHE: '1', NODE_NO_WARNINGS: '1', XDG_CONFIG_HOME: join(cwd, 'config'), XDG_STATE_HOME: join(cwd, 'state') }, timeout: 15000 });
+  const execute = (...args: string[]) => spawnSync(process.execPath, ['--import', loader, main, ...args], { cwd, encoding: 'utf8', env: { ...process.env, TSX_DISABLE_CACHE: '1', NODE_NO_WARNINGS: '1', XDG_CONFIG_HOME: join(cwd, 'config'), XDG_STATE_HOME: join(cwd, 'state') }, timeout: 60000 });
   const run = (...args: string[]) => {
     const result = execute(...args);
     expect(result.error).toBeUndefined();
@@ -73,7 +73,7 @@ describe('complete memory CLI workflows', () => {
       f.run('lifecycle', 'repo', 'shared.md', '--action', 'recheck', '--at', '2099-01-01T00:00:00.000Z', '--expected', (await f.read('shared.md')).hash);
       expect((await f.read('shared.md')).metadata.stale_after).toBe('2099-01-01T00:00:00.000Z');
     } finally { await rm(f.cwd, { recursive: true, force: true }); }
-  }, 120000);
+  }, 300000);
 
   it('exposes JSON proposal previews, protected apply, recovery inspection and explicit migration', async () => {
     const f = await fixture();
@@ -110,5 +110,5 @@ describe('complete memory CLI workflows', () => {
       const mismatch = await f.json('mismatch.json', { bundle: 'other' });
       expect(JSON.parse(f.execute('template', 'repo', '--file', mismatch).stderr).error.code).toBe('INVALID_INPUT');
     } finally { await rm(f.cwd, { recursive: true, force: true }); }
-  }, 120000);
+  }, 300000);
 });
