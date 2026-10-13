@@ -46,10 +46,10 @@ describe('OKF parsing and retrieval', () => {
     expect((await run(f.store.read('repo', 'cyclic.md'))).raw).toContain('producer: &self { child: *self } # preserve alias');
   });
   it('encodes synthetic index destinations and creates an authored index from the empty hash', async () => {
-    const f = await fixture(); await f.write('a#fragment.md', document('Hash filename')); await f.write('nested/a?query.md', document('Query filename'));
+    const f = await fixture(); await f.write('a#fragment.md', document('Hash filename')); await f.write('nested/a[query].md', document('Bracket filename'));
     const index = await run(f.store.index('repo'));
-    expect(index.hash).toBe(''); expect(index.raw).toContain('(a%23fragment.md)'); expect(index.raw).toContain('(nested/a%3Fquery.md)');
-    expect(index.links.map(link => link.target)).toEqual(['a#fragment.md', 'nested/a?query.md']);
+    expect(index.hash).toBe(''); expect(index.raw).toContain('(a%23fragment.md)'); expect(index.raw).toContain('(nested/a%5Bquery%5D.md)');
+    expect(index.links.map(link => link.target)).toEqual(['a#fragment.md', 'nested/a[query].md']);
     const saved = await run(f.store.save({ bundle: 'repo', path: index.path, raw: index.raw, expectedHash: index.hash || null }));
     expect(saved.hash).not.toBe(''); expect((await run(f.store.index('repo'))).hash).toBe(saved.hash);
   });

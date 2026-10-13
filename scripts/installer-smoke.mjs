@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { executableName, writeVpMock } from './smoke-tools.mjs';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmod, copyFile, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
 

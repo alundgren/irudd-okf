@@ -14,8 +14,24 @@ export const within = (root: string, target: string) => {
 };
 const sameSystemPath = (first: string, second: string) => path.relative(first, second) === '';
 export async function normalizeSystemPath(input: string, platform: NodeJS.Platform = process.platform): Promise<string> {
-  const paths = platform === 'darwin' ? path.posix : path;
+  const paths = platform === 'win32' ? path.win32 : path.posix;
   const absolute = paths.resolve(input);
+  if (platform === 'win32') {
+    // Resolve Windows short names only after rejecting links in each existing
+    // parent. realpath alone would also follow user-created junctions.
+    const root = paths.parse(absolute).root;
+    const parts = absolute.slice(root.length).split(paths.sep).filter(Boolean);
+    let current = root;
+    for (let index = 0; index < parts.length; index++) {
+      current = paths.join(current, parts[index]);
+      let information;
+      try { information = await fs.lstat(current); }
+      catch (error) { if (absent(error)) return paths.join(current, ...parts.slice(index + 1)); throw error; }
+      if (information.isSymbolicLink()) throw new OkfError('UNSAFE_PATH', 'Directories must not contain user-created symbolic links.', { path: input });
+      current = await fs.realpath(current);
+    }
+    return current;
+  }
   if (platform !== 'darwin') return absolute;
   const name = absolute.split(paths.sep)[1];
   if (!['var', 'tmp', 'etc'].includes(name)) return absolute;

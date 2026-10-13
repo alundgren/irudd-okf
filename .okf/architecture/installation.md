@@ -18,6 +18,10 @@ on every archive before publishing the complete set with SHA-256 checksums.
 Portable executables have no source installation record and need a new archive
 to update. Source installations continue to upgrade from main.
 
+Resolve Windows 8.3 directory aliases only after checking each existing parent
+for symbolic links or junctions. Temporary paths can use names such as
+`RUNNER~1` even when the same directory has a longer canonical name.
+
 Windows cannot overwrite the executable running `upgrade`. Rename that file
 before publishing the new executable. A previous executable that Windows still
 has open remains beside the installation until the next installation removes it.
