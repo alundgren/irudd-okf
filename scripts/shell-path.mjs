@@ -1,8 +1,14 @@
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { appendFile, readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 export const addToShellPath = async (directory, profileDirectory = homedir(), shell = process.env.SHELL ?? '/bin/bash') => {
+  if (process.platform === 'win32') {
+    execFileSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', fileURLToPath(new URL('windows-path.ps1', import.meta.url)), '-Directory', directory], { stdio: 'inherit' });
+    return;
+  }
   const profiles = shell.endsWith('/zsh') ? ['.zprofile'] : shell.endsWith('/bash') ? ['.bash_profile', '.bash_login', '.profile'] : [];
   if (!profiles.length) {
     console.error(`Add ${directory} to your shell's PATH.`);

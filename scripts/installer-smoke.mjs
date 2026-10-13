@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
+import { executableName, writeVpMock } from './smoke-tools.mjs';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmod, copyFile, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
 
@@ -8,12 +9,12 @@ const directory = await realpath(await mkdtemp(join(tmpdir(), 'okf-installer-'))
 const upstream = join(directory, 'upstream');
 const source = join(directory, 'separate clone');
 const installDirectory = join(directory, 'path with spaces', 'bin');
-const executable = join(installDirectory, 'irudd-okf');
-const metadata = `${executable}.install.json`;
+const executable = join(installDirectory, executableName);
+const metadata = join(installDirectory, 'irudd-okf.install.json');
 const tools = join(directory, 'tools');
 const calls = join(directory, 'vp-calls.jsonl');
 const failure = join(directory, 'fail-build');
-const artifact = resolve('build/irudd-okf');
+const artifact = resolve('build', executableName);
 const environment = { ...process.env, PATH: `${tools}${delimiter}${process.env.PATH}`, OKF_SMOKE_ARTIFACT: artifact, OKF_SMOKE_CALLS: calls, OKF_SMOKE_FAILURE: failure };
 const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8', env: environment }).trim();
 const run = (...args) => spawnSync(executable, ['upgrade', ...args], { cwd: directory, encoding: 'utf8', env: environment, timeout: 60_000 });
@@ -36,13 +37,14 @@ try {
   await copyFile(resolve('scripts/shell-path.mjs'), join(upstream, 'scripts/shell-path.mjs'));
   await writeFile(join(upstream, '.gitignore'), 'build/\n');
   git(directory, 'init', '--initial-branch=main', upstream);
+  git(upstream, 'config', 'core.autocrlf', 'false');
   git(upstream, 'config', 'user.name', 'Installer smoke');
   git(upstream, 'config', 'user.email', 'smoke@example.invalid');
   await writeFile(join(upstream, 'package.json'), JSON.stringify({ version: '0.1.0' }));
   const initial = await commit('initial');
   git(directory, 'clone', '--branch', 'main', '--single-branch', upstream, source);
   await mkdir(join(source, 'build'));
-  await copyFile(artifact, join(source, 'build/irudd-okf'));
+  await copyFile(artifact, join(source, 'build', executableName));
   execFileSync(process.execPath, [join(source, 'scripts/install-cli.mjs'), installDirectory], { cwd: directory, env: environment, stdio: 'pipe' });
   assert.equal((await record()).source, source);
   assert.equal((await record()).revision, initial);
@@ -51,7 +53,7 @@ try {
 
   // Use the real installed executable and installer. Only the expensive Vite+
   // dependency and build commands are replaced in this local Git fixture.
-  await writeFile(join(tools, 'vp'), `#!${process.execPath}\n` + `
+  await writeVpMock(tools, `
 import { appendFileSync, copyFileSync, existsSync, mkdirSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 const args = process.argv.slice(2);
@@ -60,10 +62,9 @@ if (args[0] === 'install') process.exit(0);
 if (args[0] !== 'run' || args[1] !== '--no-cache' || args[2] !== 'install:cli') process.exit(2);
 if (existsSync(process.env.OKF_SMOKE_FAILURE)) { console.error('Simulated build failure'); process.exit(1); }
 mkdirSync('build', { recursive: true });
-copyFileSync(process.env.OKF_SMOKE_ARTIFACT, 'build/irudd-okf');
-execFileSync(process.execPath, ['scripts/install-cli.mjs', args[3]], { stdio: 'inherit' });
+copyFileSync(process.env.OKF_SMOKE_ARTIFACT, process.platform === 'win32' ? 'build/irudd-okf.exe' : 'build/irudd-okf');
+execFileSync(${JSON.stringify(process.execPath)}, ['scripts/install-cli.mjs', args[3]], { stdio: 'inherit' });
 `);
-  await chmod(join(tools, 'vp'), 0o755);
   assert.deepEqual(JSON.parse(run('--check').stdout), { current: '0.1.0', latest: '0.1.0', updateAvailable: false });
   assert.equal(upgrade().updated, false);
   await assert.rejects(readFile(calls), { code: 'ENOENT' });

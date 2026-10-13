@@ -11,7 +11,7 @@ afterEach(async () => { for (const path of directories.splice(0)) await rm(path,
 const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trimEnd();
 const fixture = async () => {
   const root = await realpath(await mkdtemp(resolve(tmpdir(), 'okf-git-test-'))); directories.push(root);
-  git(root, 'init', '-b', 'main'); git(root, 'config', 'user.name', 'OKF Tests'); git(root, 'config', 'user.email', 'tests@example.invalid');
+  git(root, 'init', '-b', 'main'); git(root, 'config', 'core.autocrlf', 'false'); git(root, 'config', 'core.symlinks', 'true'); git(root, 'config', 'user.name', 'OKF Tests'); git(root, 'config', 'user.email', 'tests@example.invalid');
   await mkdir(resolve(root, '.okf'));
   await writeFile(resolve(root, '.okf/rule.md'), '---\ntype: Rule\n---\nOriginal\n');
   await writeFile(resolve(root, 'code.txt'), 'Original code\n');
@@ -40,7 +40,7 @@ describe('isolated memory PR preparation', () => {
   it('rejects a symlinked destination bundle in the selected Git base', async () => {
     const { root, memory } = await fixture();
     const external = await realpath(await mkdtemp(resolve(tmpdir(), 'okf-git-external-'))); directories.push(external);
-    await rm(resolve(root, '.okf'), { recursive: true }); await symlink(external, resolve(root, '.okf'));
+    await rm(resolve(root, '.okf'), { recursive: true }); await symlink(external, resolve(root, '.okf'), 'dir');
     git(root, 'add', '-A'); git(root, 'commit', '-m', 'symlink base'); git(root, 'update-ref', 'refs/remotes/origin/main', 'HEAD');
     await rm(resolve(root, '.okf')); await mkdir(resolve(root, '.okf')); await writeFile(resolve(root, '.okf/rule.md'), '---\ntype: Rule\n---\nCurrent\n');
     await expect(Effect.runPromise(memory.preview('repo', ['rule.md'], 'origin/main'))).rejects.toMatchObject({ code: 'UNSAFE_PATH' });

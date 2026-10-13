@@ -1,15 +1,30 @@
 ---
 type: Decision
 title: Install and upgrade from a separate source clone
-description: Build the CLI locally with Vite+ and update from main without release archives.
+description: Install from a separate source clone, update from main, and publish validated native release packages.
 tags: [cli, installation, upgrades, vite]
 ---
 
-Offer one install command, `curl` the root `install.sh` into `bash`. The
-installer manages a separate clone on main, installs Vite+ when absent,
-builds the CLI locally, and configures its bash or zsh PATH. Users should not
+Offer `install.sh` for Linux and macOS, and `install.ps1` for Windows 11 x64.
+Both installers manage a separate clone on main, install Vite+ when absent,
+and build the CLI locally. Unix installation configures bash or zsh PATH;
+Windows installation adds its bin directory to the user PATH. Users should not
 need to clone, change directories, install dependencies, build, or set PATH
-themselves. Do not add GitHub release downloads or archive assembly.
+themselves.
+
+Tagged releases also provide portable executables for Windows x64, Linux x64
+and arm64, and macOS x64 and arm64. Extract and run the standalone smoke checks
+on every archive before publishing the complete set with SHA-256 checksums.
+Portable executables have no source installation record and need a new archive
+to update. Source installations continue to upgrade from main.
+
+Resolve Windows 8.3 directory aliases only after checking each existing parent
+for symbolic links or junctions. Temporary paths can use names such as
+`RUNNER~1` even when the same directory has a longer canonical name.
+
+Windows cannot overwrite the executable running `upgrade`. Rename that file
+before publishing the new executable. A previous executable that Windows still
+has open remains beside the installation until the next installation removes it.
 
 The installed record identifies the source clone, commit, and Vite+ executable.
 Use the recorded Vite+ path during upgrades so callers such as Scope do not

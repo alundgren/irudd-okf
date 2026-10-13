@@ -4,7 +4,7 @@ import { chmod, lstat, mkdir, mkdtemp, open, readFile, realpath, rename, rm, wri
 import { homedir, tmpdir } from 'node:os';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { OkfError, type GitPreview, type GitStatus, type MemoryContext, type Operation, type PullRequestResult } from '../../core/src/contracts.ts';
-import { normalizeSystemPath } from '../../core/src/files.ts';
+import { cleanPath, normalizeSystemPath } from '../../core/src/files.ts';
 import { checkedProcess, runProcess } from './process.ts';
 
 const call = (command: string, args: string[], cwd: string) => Effect.runPromise(checkedProcess(command, args, cwd));
@@ -34,6 +34,7 @@ export class GitMemory {
   private async safeFile(root: string, path: string) {
     root = await normalizeSystemPath(root);
     if (!path || path.includes('\0') || path.includes('\\') || isAbsolute(path) || path.split('/').some(part => !part || part === '.' || part === '..') || !path.endsWith('.md')) throw new OkfError('UNSAFE_PATH', 'Select bundle-relative Markdown paths.');
+    cleanPath(path);
     const file = resolve(root, path);
     if (!within(root, file)) throw new OkfError('UNSAFE_PATH', 'Path leaves the bundle.');
     // Check from the filesystem root, including the bundle root itself: the
