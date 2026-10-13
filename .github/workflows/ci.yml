@@ -40,6 +40,7 @@ jobs:
           name: native-${{ matrix.os }}
           path: ${{ runner.temp }}/okf-release/irudd-okf-*
           if-no-files-found: error
+          compression-level: 0
   browser:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -64,12 +65,9 @@ jobs:
           name: browser-evidence
           path: ${{ runner.temp }}/okf-browser-smoke/browser-*
 
-  release:
-    if: startsWith(github.ref, 'refs/tags/v')
+  release-packages:
     needs: [native, browser]
     runs-on: ubuntu-24.04
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -83,6 +81,23 @@ jobs:
       - run: node scripts/release-checksums.mjs "$OKF_RELEASE_DIR"
         env:
           OKF_RELEASE_DIR: ${{ runner.temp }}/okf-release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-packages
+          path: ${{ runner.temp }}/okf-release/*
+          if-no-files-found: error
+          compression-level: 0
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: release-packages
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-packages
+          path: ${{ runner.temp }}/okf-release
       - run: gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes "$OKF_RELEASE_DIR"/*
         env:
           GH_TOKEN: ${{ github.token }}
