@@ -87,7 +87,7 @@ try {
   assert.equal(procedure.memory.humanReviewed, false);
   assert.equal(procedure.memory.dependency, 'valid');
 
-  await save('facts/shared.md', rawDocument(base('Reference', 'Shared demo context', 'All demo agents should know the material is synthetic.', 'semantic', 'silver'), '# Applicability\n\nEvery memory in this bundle is an invented example. No claim is production guidance.'));
+  await save('facts/shared.md', rawDocument({ ...base('Reference', 'Shared demo context', 'All demo agents should know the material is synthetic.', 'semantic', 'silver'), stale_after: future }, '# Applicability\n\nEvery memory in this bundle is an invented example. No claim is production guidance.'));
   const index = call('read', 'demo', 'index.md');
   const indexFile = join(scratch, 'index.md');
   await writeFile(indexFile, index.raw + '\n## Demo topics\n\n- [Episodes](episodes/index.md)\n- [Facts](facts/index.md)\n- [Procedures](procedures/index.md)\n');
@@ -100,13 +100,16 @@ try {
   assert(recall.results.some(note => note.path === procedure.path));
   assert(!recall.results.some(note => note.path === episode.path));
   assert.equal(call('validate', '--scope', 'demo').errors, 0);
+  const lint = call('lint', '--scope', 'demo');
+  assert.equal(lint.errors, 0);
+  assert.equal(lint.warnings, 0);
   const audit = call('audit', '--scope', 'demo', '--namespace', 'payments');
   assert(audit.concepts.some(note => note.path === episode.path));
   const graph = call('graph', '--scope', 'demo', '--namespace', 'payments', '--include-excluded');
   assert(graph.edges.some(edge => edge.from.endsWith(procedure.path) && edge.to.endsWith(episode.path)));
   console.log(JSON.stringify({
     passed: true, retained: Boolean(process.argv[3]), root: process.argv[3] ? root : null,
-    checks: ['all-memory-kinds', 'all-processing-stages', 'shared-plus-namespace', 'task-retention', 'expired-exact-read', 'machine-verification', 'independent-machine-review', 'source-revisions', 'historical-evidence', 'indexes', 'source-graph'],
+    checks: ['all-memory-kinds', 'all-processing-stages', 'shared-plus-namespace', 'task-retention', 'expired-exact-read', 'machine-verification', 'revision-bound-machine-review', 'source-revisions', 'historical-evidence', 'indexes', 'source-graph', 'profile-lint'],
   }, null, 2));
 } finally {
   await rm(scratch, { recursive: true, force: true });
