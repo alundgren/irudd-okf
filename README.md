@@ -198,8 +198,9 @@ irudd-okf instructions remove claude
 Replace `personal` with the active alias shown by `context`. Installation and
 updates replace only the section between the `irudd-okf personal-memory` markers.
 Repeated installation is a no-op. Removal leaves other instructions intact.
-Existing file permissions are preserved; changed files have a private recovery
-copy. `--dry-run` also works for removal and writes nothing. No memory content
+On Unix, existing file permissions are preserved. Windows instruction and
+recovery files inherit their directory's permissions. Changed files have a
+recovery copy. `--dry-run` also works for removal and writes nothing. No memory content
 is copied into the instruction file, and no skill installation is required.
 
 Codex uses `~/.codex/AGENTS.md`, respecting `CODEX_HOME`. Claude uses
