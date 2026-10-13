@@ -1,6 +1,6 @@
 {
   "name": "irudd-okf",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "license": "MIT",
@@ -11,9 +11,7 @@
     "node": ">=26.10.0"
   },
   "scripts": {
-    "dev": "vp dev",
-    "build:web": "vp build",
-    "build": "node scripts/licenses.mjs && vp build && node scripts/inline-web.mjs && vp pack",
+    "build": "node scripts/licenses.mjs && vp pack",
     "install:cli": "vp run build && node scripts/install-cli.mjs",
     "test": "vp test run",
     "typecheck": "tsc --noEmit",
@@ -21,17 +19,14 @@
     "okf": "node --import tsx packages/cli/src/main.ts"
   },
   "dependencies": {
-    "@effect/platform-browser": "4.0.0",
     "@effect/platform-node": "4.0.0",
     "effect": "4.0.0",
-    "foldkit": "0.165.0",
     "markdown-it": "14.3.2",
     "yaml": "2.9.1"
   },
   "devDependencies": {
     "@types/markdown-it": "14.1.2",
     "@types/node": "26.0.0",
-    "playwright": "1.58.2",
     "tsx": "4.20.6",
     "typescript": "7.0.2",
     "vite-plus": "1.0.0"

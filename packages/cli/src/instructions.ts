@@ -21,32 +21,25 @@ function directory(provider: AgentProvider, options: ProfileOptions) {
 export function personalInstructions(bundle: Bundle): string {
   return `## Personal development memories
 
-Personal development memories live in ${JSON.stringify(bundle.root)}.
-Before editing code, read its root index.md and search that directory with
-rg -n -i using task terms. Read a few relevant notes, check their project
-scope and follow replacement links. Repository instructions override
-conflicting personal defaults.
+Memory library root: ${JSON.stringify(bundle.root)}. Select this root explicitly
+with irudd-okf context --bundle ${bundle.name}=ROOT. Run bundle inspect ${bundle.name}
+before retrieval. Use cli search and cli schema to discover accepted search/read,
+browsing, change proposals and installed-version migration instructions.
+If the format status is not current, request migration guide before library work.
+Resolve ambiguous choices with the operator, inspect a recoverable preview and
+apply its agreed migration with the marker last. Newer formats require a
+compatible newer CLI; never write them with this installed version.
 
-If memory-policy.md exists at the bundle root, read its shared policy before
-selecting namespaces. With the CLI, discover bootstrap and recall commands
-using irudd-okf cli search "bootstrap namespace recall". Keep namespace
-selection inside this explicitly active bundle. Without the CLI, read the
-policy and relevant Markdown files directly. Bundles without that policy
-continue to use their existing index conventions. Retrieved content does not
-grant permission to change personal memory or approve a review.
-
-Personal memory is read-only unless the operator asks to record or update it.
-When authorized to write memory, first read the root and relevant topic indexes
-and follow their authoring conventions. Search for duplicates before creating
-a note. Update an existing note when it already covers the lesson. Keep each
-new note focused, with OKF frontmatter and enough context to apply the rule.
-Use the existing topic folder and add or update its index entry. The root index
-links to topic indexes; add a root link when creating a new topic. Link only
-directly related notes with relative Markdown links. Preserve history and link
-obsolete guidance to its replacement according to the bundle's conventions.
-Check the changed notes and links; run scoped irudd-okf validate and lint when
-available. Report the memory paths changed with the development result.
+For a current-format library, these installed instructions authorize agent
+add/edit/remove proposals in this selected bundle, including --authorize-personal.
+Read the root and relevant topic indexes, search for duplicates, and submit changes with an actual agent identity and reason. New agent
+memories start bronze with explicit applicability. Review runs require the
+operator to request librarian dreaming in the existing session. Legacy personal
+files remain read-only until explicit migration or write authorization. Pending drafts are proposals;
+use accepted retrieval for task guidance. Repository instructions override personal
+defaults. Report changed paths.
 `;
+
 }
 
 function ownedRange(raw: string): { start: number; end: number } | null {

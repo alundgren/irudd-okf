@@ -81,9 +81,12 @@ describe('owned provider instructions', () => {
     const preview = await run(installInstructions('codex', f.bundle, { ...f.options, dryRun: true }));
     expect(preview).toMatchObject({ changed: true, dryRun: true, installed: true });
     expect(preview.instructions).toContain('root and relevant topic indexes');
-    expect(preview.instructions).toContain('read its shared policy before');
-    expect(preview.instructions).toContain('Without the CLI');
-    expect(preview.instructions).toContain('Bundles without that policy');
+    expect(preview.instructions).toContain('bundle inspect');
+    expect(preview.instructions).toContain('request migration guide before library work');
+    expect(preview.instructions).toContain('Resolve ambiguous choices with the operator');
+    expect(preview.instructions).toContain('marker last');
+    expect(preview.instructions).toContain('cli schema');
+    expect(preview.instructions).toContain('Pending drafts are proposals');
     await expect(fs.stat(path.dirname(f.codex))).rejects.toMatchObject({ code: 'ENOENT' });
     const options = { home: f.home, env: { CODEX_HOME: path.join(f.home, 'codex-profile'), CLAUDE_CONFIG_DIR: path.join(f.home, 'claude-profile') } };
     expect((await run(installInstructions('codex', f.bundle, options))).file).toBe(path.join(options.env.CODEX_HOME, 'AGENTS.md'));

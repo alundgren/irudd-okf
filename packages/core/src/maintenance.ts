@@ -14,13 +14,13 @@ export function previewDigest(preview: MaintenancePreview): string {
 function validatePreview(preview: MaintenancePreview): void {
   decode(PreviewSchema, preview);
   if (!/^[a-f0-9]{64}$/.test(preview.previewHash) || preview.previewHash !== previewDigest(preview)) throw new OkfError('INVALID_PREVIEW', 'Preview digest does not match its payload.');
-  if (preview.changes.length > 100 || new Set(preview.changes.map(item => item.path)).size !== preview.changes.length || new Set(preview.guards.map(item => item.path)).size !== preview.guards.length) throw new OkfError('INVALID_PREVIEW', 'Preview paths must be unique and batches contain at most 100 changes.');
+  if (preview.changes.length > (preview.purpose==='migration'?10002:100) || new Set(preview.changes.map(item => item.path)).size !== preview.changes.length || new Set(preview.guards.map(item => item.path)).size !== preview.guards.length) throw new OkfError('INVALID_PREVIEW', 'Preview paths must be unique and respect the maintenance or migration batch limit.');
   for (const change of preview.changes) {
-    if (cleanPath(change.path) !== change.path || !change.path.endsWith('.md') || change.expectedHash !== (change.before === null ? null : hash(change.before)) || change.afterHash !== (change.raw === null ? null : hash(change.raw))) throw new OkfError('INVALID_PREVIEW', 'Preview paths and before/after digests must match exact bytes.', { path: change.path });
+    if (cleanPath(change.path) !== change.path || !(change.path.endsWith('.md') || preview.purpose === 'migration' && ['memory-history.json', 'memory-bundle.json'].includes(change.path)) || change.expectedHash !== (change.before === null ? null : hash(change.before)) || change.afterHash !== (change.raw === null ? null : hash(change.raw))) throw new OkfError('INVALID_PREVIEW', 'Preview paths and before/after digests must match exact bytes.', { path: change.path });
     const guard = preview.guards.find(item => item.path === change.path);
     if (change.before !== null && guard?.expectedHash !== change.expectedHash || change.before === null && guard) throw new OkfError('INVALID_PREVIEW', 'Every existing changed file must have an exact inventory guard.', { path: change.path });
   }
-  for (const guard of preview.guards) if (cleanPath(guard.path) !== guard.path || !guard.path.endsWith('.md') || !/^[a-f0-9]{64}$/.test(guard.expectedHash)) throw new OkfError('INVALID_PREVIEW', 'Inventory guards require canonical Markdown paths and SHA-256 digests.');
+  for (const guard of preview.guards) if (cleanPath(guard.path) !== guard.path || !(guard.path.endsWith('.md') || preview.purpose === 'migration' && ['memory-history.json', 'memory-bundle.json'].includes(guard.path)) || !/^[a-f0-9]{64}$/.test(guard.expectedHash)) throw new OkfError('INVALID_PREVIEW', 'Inventory guards require canonical Markdown paths and SHA-256 digests.');
 }
 async function rawAt(bundle: Bundle, relative: string): Promise<string | null> {
   try { const file = await guarded(bundle, relative); const handle = await fs.open(file, constants.O_RDONLY | constants.O_NOFOLLOW); try { return await handle.readFile('utf8'); } finally { await handle.close(); } }
@@ -45,6 +45,16 @@ async function loadJournal(file: string, root: string, expected: string): Promis
   try { const handle = await fs.open(file, constants.O_RDONLY | constants.O_NOFOLLOW); try { raw = await handle.readFile('utf8'); } finally { await handle.close(); } } catch (error) { if (absent(error)) return null; throw error; }
   let journal: Journal;
   try { journal = JSON.parse(raw); } catch { throw new OkfError('INVALID_JOURNAL', 'Durable journal cannot be parsed. Preserve it and inspect recovery copies.', { journalPath: file }); }
+  if(journal?.preview?.purpose==='migration') {
+    const progressFile=file+'.progress';
+    try {
+      const information=await fs.lstat(progressFile);if(!information.isFile() || information.isSymbolicLink())throw new OkfError('UNSAFE_PATH','Migration progress must be an ordinary file.');
+      const handle=await fs.open(progressFile,constants.O_RDONLY | constants.O_NOFOLLOW);let progress;
+      try{progress=JSON.parse(await handle.readFile('utf8'));}finally{await handle.close();}
+      if(progress?.version!==1 || progress.previewHash!==expected || progress.root!==root || !Array.isArray(progress.completed) || !Array.isArray(progress.conflicts) || !['prepared','applying','applied','conflict'].includes(progress.state))throw new OkfError('INVALID_JOURNAL','Migration progress does not match its retained preview.');
+      journal={...journal,state:progress.state,completed:progress.completed,conflicts:progress.conflicts};
+    } catch(error){if(!absent(error))throw error;}
+  }
   if (!journal || journal.version !== 1 || journal.root !== root || !journal.preview || !Array.isArray(journal.completed) || !journal.recovery || typeof journal.recovery !== 'object' || !Array.isArray(journal.conflicts) || !['prepared', 'applying', 'applied', 'conflict'].includes(journal.state)) throw new OkfError('INVALID_JOURNAL', 'Durable journal metadata is invalid.', { journalPath: file });
   try { validatePreview(journal.preview); } catch { throw new OkfError('INVALID_JOURNAL', 'Durable journal preview is invalid.', { journalPath: file }); }
   if (journal.preview.previewHash !== expected || journal.preview.root !== root) throw new OkfError('INVALID_JOURNAL', 'Journal belongs to a different bundle or preview.', { journalPath: file });
@@ -84,7 +94,14 @@ export async function applyJournal(bundle: Bundle, preview: MaintenancePreview, 
     }
     const active = journal;
     const changedPaths: string[] = [];
-    const persist = () => atomicReplace(file, JSON.stringify(active, null, 2) + '\n');
+    const persist = async () => {
+      if(preview.purpose!=='migration')return atomicReplace(file,JSON.stringify(active,null,2)+'\n');
+      const progressFile=file+'.progress',raw=JSON.stringify({version:1,previewHash:preview.previewHash,root,state:active.state,completed:active.completed,conflicts:active.conflicts})+'\n';
+      try {
+        const information=await fs.lstat(progressFile);if(!information.isFile() || information.isSymbolicLink())throw new OkfError('UNSAFE_PATH','Migration progress must remain an ordinary file.');
+        await atomicReplace(progressFile,raw);
+      }catch(error){if(!absent(error))throw error;await atomicCreate(progressFile,raw);}
+    };
     const conflict = async (relative: string, current: string | null, message: string): Promise<never> => {
       const recoveryPath = current === null ? undefined : await recovery(root, current);
       for (const changedPath of [...changedPaths].reverse()) {
@@ -132,7 +149,7 @@ export async function applyJournal(bundle: Bundle, preview: MaintenancePreview, 
       if ((current === null ? null : hash(current)) === change.afterHash) { if (!active.completed.includes(change.path)) active.completed.push(change.path); await persist(); continue; }
       if ((current === null ? null : hash(current)) !== change.expectedHash) await conflict(change.path, current, 'A document changed during apply. Retry will preserve its external edits.');
       const destination = await guarded(bundle, change.path, true);
-      const beforePublish = async () => { await checkInventory(); current = await rawAt(bundle, change.path); if ((current === null ? null : hash(current)) !== change.expectedHash) await conflict(change.path, current, 'A document changed before atomic publication.'); };
+      const beforePublish = async () => { if(preview.purpose!=='migration' || change.path==='memory-bundle.json')await checkInventory(); current = await rawAt(bundle, change.path); if ((current === null ? null : hash(current)) !== change.expectedHash) await conflict(change.path, current, 'A document changed before atomic publication.'); };
       if (change.raw === null) { await beforePublish(); await fs.unlink(destination); }
       else if (change.expectedHash === null) {
         try { await atomicCreate(destination, change.raw, beforePublish); } catch (error) { if ((error as NodeJS.ErrnoException).code === 'EEXIST') await conflict(change.path, await rawAt(bundle, change.path), 'Another writer created the destination during apply.'); throw error; }
@@ -146,8 +163,7 @@ export async function applyJournal(bundle: Bundle, preview: MaintenancePreview, 
   });
 }
 
-export async function recoverJournalLock(bundle: Bundle, digest: string): Promise<import('./contracts.ts').MaintenanceRecoveryResult> {
-  const inspection = await inspectJournal(bundle, digest);
+export async function recoverBundleLock(bundle: Bundle): Promise<{lockRecovered:boolean;lockRecoveryPath?:string}> {
   const root = await canonicalDirectory(bundle.root);
   const file = path.join(root, '.irudd-okf', 'write.lock');
   let raw: string;
@@ -157,7 +173,7 @@ export async function recoverJournalLock(bundle: Bundle, digest: string): Promis
     if (!information.isFile() || information.isSymbolicLink()) throw new OkfError('UNSAFE_PATH', 'Write lock must be an ordinary file.');
     const handle = await fs.open(file, constants.O_RDONLY | constants.O_NOFOLLOW);
     try { raw = await handle.readFile('utf8'); } finally { await handle.close(); }
-  } catch (error) { if (absent(error)) return { ...inspection, lockRecovered: false }; throw error; }
+  } catch (error) { if (absent(error)) return { lockRecovered: false }; throw error; }
   let owner: {pid?: unknown; startedAt?: unknown};
   try { owner = JSON.parse(raw); } catch { throw new OkfError('LOCK_OWNER_UNKNOWN', 'Write lock has no valid owner. Preserve it for manual inspection.', { lockPath: file }); }
   if (!owner || typeof owner.pid !== 'number' || !Number.isSafeInteger(owner.pid) || owner.pid <= 0 || typeof owner.startedAt !== 'string' || !Number.isFinite(Date.parse(owner.startedAt))) throw new OkfError('LOCK_OWNER_UNKNOWN', 'Write lock owner cannot be verified. Preserve it for manual inspection.', { lockPath: file });
@@ -171,5 +187,11 @@ export async function recoverJournalLock(bundle: Bundle, digest: string): Promis
   try { latestRaw = await handle.readFile('utf8'); } finally { await handle.close(); }
   if (latest.isSymbolicLink() || latest.ino !== information.ino || latest.dev !== information.dev || latestRaw !== raw) throw new OkfError('CONFLICT', 'Write lock changed while recovery was being prepared. It remains untouched.', { lockPath: file, lockRecoveryPath });
   await fs.unlink(file);
-  return { ...await inspectJournal(bundle, digest), lockRecovered: true, lockRecoveryPath };
+  return { lockRecovered: true, lockRecoveryPath };
+}
+
+export async function recoverJournalLock(bundle: Bundle, digest: string): Promise<import('./contracts.ts').MaintenanceRecoveryResult> {
+  await inspectJournal(bundle,digest);
+  const recovery=await recoverBundleLock(bundle);
+  return {...await inspectJournal(bundle,digest),...recovery};
 }

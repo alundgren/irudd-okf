@@ -85,6 +85,8 @@ describe('platform directory aliases', () => {
     expect((await Effect.runPromise(initializeBundle(requested))).root).toBe(path.join(root, '.okf'));
     const context = await Effect.runPromise(resolveContext({ cwd: lexicalRoot, explicitBundles: [{ name: 'temp', root: requested }] }));
     expect(context.bundles[0].root).toBe(path.join(root, '.okf'));
+    await fs.unlink(path.join(root, '.okf', 'memory-bundle.json'));
+    await fs.unlink(path.join(root, '.okf', 'memory-policy.md'));
     const store = createStore(context);
     await Effect.runPromise(store.save({ bundle: 'temp', path: 'rule.md', raw: '---\ntype: Rule\n---\nPlatform paths\n', expectedHash: null }));
     expect((await Effect.runPromise(store.read('temp', 'rule.md'))).body).toContain('Platform paths');

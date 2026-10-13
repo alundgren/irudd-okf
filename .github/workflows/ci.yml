@@ -41,32 +41,8 @@ jobs:
           path: ${{ runner.temp }}/okf-release/irudd-okf-*
           if-no-files-found: error
           compression-level: 0
-  browser:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    container:
-      image: mcr.microsoft.com/playwright:v1.58.2-noble
-      options: --ipc=host
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 26.10.0
-          cache: npm
-      - run: npm ci
-      - run: npm run build
-      - run: OKF_BROWSER_TEST=1 npm test -- packages/web/test/viewer.test.ts
-      - run: node scripts/browser-smoke.mjs
-        env:
-          OKF_BROWSER_ARTIFACTS: ${{ runner.temp }}/okf-browser-smoke
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: browser-evidence
-          path: ${{ runner.temp }}/okf-browser-smoke/browser-*
-
   release-packages:
-    needs: [native, browser]
+    needs: native
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4

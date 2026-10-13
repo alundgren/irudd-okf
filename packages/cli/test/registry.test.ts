@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { commands, discover } from '../src/registry.ts';
+import { commands, discover, navigate } from '../src/registry.ts';
 describe('progressive command discovery', () => {
   it('finds bounded relevant commands with mutation disclosure', () => {
     const results = discover('publish memory PR');
@@ -8,6 +8,13 @@ describe('progressive command discovery', () => {
     expect(results.every(result => result.usage.startsWith('irudd-okf '))).toBe(true);
     expect(results.every(result => !('input' in result) && !('examples' in result))).toBe(true);
     expect(discover('nonexistent123term')).toEqual([]);
+  });
+  it('navigates groups and provides exact machine-readable library outputs and guarded review errors',()=>{
+    expect(navigate('change').entries.some(item=>item.command==='change recover')).toBe(true);
+    expect(navigate().entries.some(item=>item.command==='change' && item.group)).toBe(true);
+    const review=commands.find(item=>item.command==='change review');
+    expect(review?.outputSchema).toMatchObject({schema:{properties:{display:{type:'object'},humanRequired:{type:'boolean'}}}});
+    expect(review?.errors?.some(item=>item.code==='REVIEW_CONFLICT')).toBe(true);
   });
   it('registers distinct commands and schemas', () => {
     expect(new Set(commands.map(item => item.command)).size).toBe(commands.length);

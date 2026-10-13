@@ -360,25 +360,10 @@ describe('migration preservation and domain request validation', () => {
     const preview=await run(f.store.previewMigration({bundle:'repo'}));
     expect(preview.unresolved.map(item=>item.field)).toContain('kind'); expect(preview.unresolved.map(item=>item.field)).toContain('frontmatter');
     expect(preview.changes.some(item=>item.path==='legacy.md')).toBe(false);
-    await expect(run(f.store.applyMigration({preview}))).rejects.toMatchObject({code:'UNRESOLVED_PROPOSAL'});
+    await expect(run(f.store.applyMigration({preview}))).rejects.toMatchObject({code:'MIGRATION_DECISIONS_REQUIRED'});
     expect(await fs.readFile(path.join(f.bundle,'legacy.md'),'utf8')).toBe(legacy);
     expect(await fs.readFile(path.join(f.bundle,'malformed.md'),'utf8')).toBe(malformed);
     const fixed=(await run(createStore({...f.context,bundles:f.context.bundles}).bootstrap('repo'))).path; expect(fixed).toBe('index.md');
-  });
-  it('migrates full typed decisions with task, expiry, prerequisites, replacement and derivation metadata preserving unknown fields/comments', async () => {
-    const f=await fixture(); const source=await f.note('source.md');
-    const legacy='---\ntype: Episode # keep comment\ncustom: { field: original }\n---\nObserved failure.\n'; await f.write('legacy.md',legacy);
-    await f.write('index.md','# Knowledge\n[legacy](legacy.md)\n[source](source.md)\n[policy](memory-policy.md)\n');
-    const preview=await run(f.store.previewMigration({bundle:'repo',decisions:{'legacy.md':{kind:'episodic',stage:'silver',actor:'agent:writer',at,title:'Failure episode',description:'Task failure observation',tags:['failures'],status:'draft',sources:[{resource:'source.md',detail:'Attribution kept'}],occurredAt:'2026-09-30T23:00:00+02:00',task:{reference:'task:local',state:'completed',completed_at:at},retentionReason:'Historical failed case',expiresAt:'2026-12-01',staleAfter:'2026-11-01',prerequisites:['source.md'],replaces:['source.md'],replacedBy:'source.md',derivedFrom:[{resource:'source.md',content_hash:contentDigest(source)}]}}}));
-    expect(preview.unresolved).toEqual([]); expect(preview.diagnostics).toEqual([]);
-    await run(f.store.applyMigration({preview}));
-    const note=await run(f.store.read('repo','legacy.md'));
-    expect(note.raw).toContain('# keep comment'); expect(note.metadata.custom).toEqual({field:'original'});
-    expect(note.metadata.stale_after).toBe('2026-11-01');
-    expect(note.metadata.memory).toMatchObject({kind:'episodic',stage:'silver',expires_at:'2026-12-01',retention_reason:'Historical failed case',task:{reference:'task:local',state:'completed'},replaced_by:'source.md',prerequisites:['source.md'],derived_from:[{resource:'source.md',content_hash:contentDigest(source)}]});
-    expect((note.metadata.sources as Array<Record<string,unknown>>)[0].detail).toBe('Attribution kept');
-    expect((await run(f.store.applyMigration({preview}))).state).toBe('unchanged');
-    const second=await run(f.store.previewMigration({bundle:'repo'})); expect(second.changes).toEqual([]); expect(second.unresolved).toEqual([]);
   });
   it('requires personal authorization for all mutations including journal apply', async () => {
     const f=await fixture({},true); const note=await f.note('personal.md');
@@ -492,18 +477,6 @@ describe('inventory changes during apply', () => {
 });
 
 
-describe('policy metadata preservation', () => {
-  it('preserves unknown policy fields and YAML comments while editing known policy options', async () => {
-    const f=await fixture();const old=policyRaw(f.policy).replace('task_retention_days: 30','task_retention_days: 30 # keep retention comment').replace('  name: agent-memory','  custom: preserved # keep custom comment\n  name: agent-memory');
-    await f.write('memory-policy.md',old);
-    const preview=await run(f.store.previewMigration({bundle:'repo',policy:{task_retention_days:60}}));
-    expect(preview.unresolved).toEqual([]);await run(f.store.applyMigration({preview}));
-    const updated=await run(f.store.read('repo','memory-policy.md'));
-    expect(updated.raw).toContain('custom: preserved # keep custom comment');expect(updated.raw).toContain('task_retention_days: 60 # keep retention comment');
-  });
-});
-
-
 describe('generic metadata compatibility', () => {
   it('keeps legacy memory fields opaque until the canonical profile is explicitly activated', async () => {
     const f=await fixture();await fs.unlink(path.join(f.bundle,'memory-policy.md'));
@@ -538,7 +511,7 @@ describe('editable preview and completed journal checks', () => {
     const legacy='---\ntype: Rule\n---\nLegacy unclassified guidance.\n';await f.write('legacy.md',legacy);
     const preview=await run(f.store.previewMigration({bundle:'repo'}));expect(preview.unresolved.length).toBeGreaterThan(0);
     preview.unresolved=[];preview.diagnostics=[];preview.previewHash=previewDigest(preview);
-    await expect(run(f.store.applyMigration({preview}))).rejects.toMatchObject({code:'UNRESOLVED_PROPOSAL'});
+    await expect(run(f.store.applyMigration({preview}))).rejects.toMatchObject({code:'CLASSIFICATION_REQUIRED'});
     expect(await fs.readFile(path.join(f.bundle,'legacy.md'),'utf8')).toBe(legacy);await expect(fs.stat(path.join(f.bundle,'memory-policy.md'))).rejects.toMatchObject({code:'ENOENT'});
   });
   it('treats restoration to exact original bytes after a completed apply as an external change', async () => {
@@ -593,17 +566,13 @@ describe('profile index and durable review due dates', () => {
     await run(f.store.save({bundle:'repo',path:'index.md',expectedHash:null,raw:'# Knowledge\n[policy](memory-policy.md)\n[note](note.md)\n'}));
     expect((await run(f.store.validate({lint:true}))).diagnostics.some(item=>item.code==='MEMORY_ROOT_INDEX')).toBe(false);
   });
-  it('derives missing durable deadlines from generation time and policy on every cached recall, then persists them during migration', async () => {
+  it('derives missing durable deadlines from generation time and policy on every cached recall, without rewriting legacy metadata', async () => {
     let time=Date.parse(at);const f=await fixture({now:()=>new Date(time)});
     const generated='2020-01-01T00:00:00Z';const due=Date.parse(generated)+90*86400000;
     const note=await f.note('old-fact.md',undefined,'semantic',[{path:['generated','at'],value:generated},{path:['stale_after'],value:undefined}]);
     expect(note.memory?.freshness).toBe('stale');expect(note.memory?.diagnostics.some(item=>item.code==='MEMORY_REVIEW_DATE')).toBe(true);
     time=due-1;expect((await run(f.store.search('Relevant'))).results[0].memory?.freshness).toBe('current');
     time=due;expect((await run(f.store.search('Relevant'))).results[0].memory?.freshness).toBe('stale');
-    const preview=await run(f.store.previewMigration({bundle:'repo'}));expect(preview.unresolved).toEqual([]);
-    expect(preview.changes.find(item=>item.path===note.path)?.raw).toContain('stale_after: 2020-03-31T00:00:00.000Z');
-    await run(f.store.applyMigration({preview}));
-    const migrated=await run(f.store.read('repo',note.path));expect(migrated.memory?.freshness).toBe('stale');expect(migrated.memory?.diagnostics.some(item=>item.code==='MEMORY_REVIEW_DATE')).toBe(false);
-    expect((await run(f.store.previewMigration({bundle:'repo'}))).changes).toEqual([]);
+    expect((await run(f.store.read('repo',note.path))).raw).not.toContain('stale_after:');
   });
 });
