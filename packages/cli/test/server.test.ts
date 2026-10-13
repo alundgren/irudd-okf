@@ -62,7 +62,13 @@ describe('local HTTP capability boundary', () => {
         expect((await post(path, data)).status).toBe(200);
         expect((await post(path, data, false)).status).toBe(403);
         expect((await post(path, {})).status).toBe(400);
+        const count = observed.length;
+        expect((await post(path, { ...(data as Record<string, unknown>), unresolvedQuestions: ['Unavailable evidence.'] })).status).toBe(400);
+        expect(observed).toHaveLength(count);
       }
+      const count = observed.length;
+      expect((await post('maintenance/preview', { version: 1, bundle: 'repo', purpose: 'maintenance', reason: 'Explicit changes.', changes: [{ path: 'note.md', expectedHash: null, raw: '---\ntype: Fact\n---\nEvidence.', namespace: 'shared' }] })).status).toBe(400);
+      expect(observed).toHaveLength(count);
       expect(observed).toEqual(['profile', 'namespaces', 'bootstrap', 'inspectMaintenance', 'template', 'review', 'verify', 'updateTask', 'lifecycle', 'previewMaintenance', 'applyMaintenance', 'recoverMaintenance', 'previewMigration', 'applyMigration']);
       expect((await post('review', { ...mutation, decision: 'approve', actor: 'human:reviewer', reason: 'Checked evidence.', operator: false })).status).toBe(400);
     } finally { await web.dispose(); }

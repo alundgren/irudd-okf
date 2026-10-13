@@ -80,6 +80,11 @@ describe('complete memory CLI workflows', () => {
     try {
       const proposal = await f.json('proposal.json', { version: 1, bundle: 'repo', purpose: 'maintenance', reason: 'Add a reviewed fixture.', changes: [{ path: 'new.md', expectedHash: null, raw: '---\ntype: Fact\ntitle: Proposed knowledge\n---\nEvidence.\n' }] });
       const preview = f.run('maintenance', 'preview', '--file', proposal);
+      const unsupported = await f.json('unsupported-preview.json', { ...preview, unresolvedQuestions: ['Unavailable evidence.'] });
+      const rejectedApply = f.execute('maintenance', 'apply', '--file', unsupported);
+      expect(rejectedApply.status).toBe(2);
+      expect(JSON.parse(rejectedApply.stderr).error.code).toBe('INVALID_REQUEST');
+      await expect(readFile(join(f.root, 'new.md'))).rejects.toMatchObject({ code: 'ENOENT' });
       const file = await f.json('preview.json', preview);
       expect(f.run('maintenance', 'apply', '--file', file).state).toBe('applied');
       expect(f.run('maintenance', 'apply', '--file', file).state).toBe('unchanged');
