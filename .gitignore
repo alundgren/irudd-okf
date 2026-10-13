@@ -1,9 +1,7 @@
 node_modules/
 build/
 dist/
-web-dist/
 coverage/
-.playwright/
 .irudd-okf/
 *.local
 THIRD_PARTY_NOTICES.txt

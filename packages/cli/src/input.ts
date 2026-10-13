@@ -3,10 +3,10 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { OkfError } from '../../core/src/contracts.ts';
 
-export const readJson = (file: string) => Effect.tryPromise({
+export const readJson = (file: string, maximumBytes = 2_000_000) => Effect.tryPromise({
   try: async () => {
     const raw = await readFile(resolve(file), 'utf8');
-    if (Buffer.byteLength(raw) > 2_000_000) throw new OkfError('INVALID_INPUT', 'Request files must be at most 2 MB.');
+    if (Buffer.byteLength(raw) > maximumBytes) throw new OkfError('INVALID_INPUT', `Request files must be at most ${maximumBytes} bytes.`);
     let value: unknown;
     try { value = JSON.parse(raw); } catch { throw new OkfError('INVALID_INPUT', 'Request files must contain valid JSON.'); }
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new OkfError('INVALID_INPUT', 'Request files must contain a JSON object.');

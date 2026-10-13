@@ -22,5 +22,5 @@ aliases to their standard `/private` destinations before checking directory
 parents. Continue rejecting user-created symlinks. Native platform CI caught
 this difference after Linux checks passed.
 
-For browser draft source identity and review after changed backlinks, see
-[viewer draft guidance](viewer-drafts.md).
+Bind pending changes to the canonical bundle identity and reviewed revisions.
+Aliases and relative paths alone cannot identify a source across checkouts.
