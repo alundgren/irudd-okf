@@ -651,3 +651,95 @@ footer {
     min-height: 360px;
   }
 }
+
+.namespace-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+  padding: 0.8rem 1.5rem;
+}
+.memory-status {
+  font-size: 0.84rem;
+  color: var(--muted, #66574d);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  margin: 0.35rem 0;
+}
+.memory-page {
+  max-width: 76rem;
+  margin: auto;
+  padding: 2rem;
+}
+.memory-page details,
+.memory-document details,
+.memory-author details,
+.memory-create {
+  margin: 1.2rem 0;
+}
+.memory-page summary,
+.memory-document summary,
+.memory-author summary,
+.memory-create summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.memory-page details > .field,
+.memory-document details > .field,
+.memory-create > .field {
+  margin-top: 1rem;
+}
+.memory-author textarea,
+.proposal-file textarea {
+  min-height: 10rem;
+}
+.form-row {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.form-row .field {
+  flex: 1 1 12rem;
+}
+.audit-list {
+  list-style: none;
+  padding: 0;
+}
+.audit-list li {
+  padding: 0.8rem 0;
+}
+.audit-list small {
+  display: block;
+  margin-top: 0.35rem;
+}
+.proposal-file {
+  margin: 1.5rem 0;
+}
+.maintenance-preview {
+  margin-top: 2rem;
+}
+.memory-page pre,
+.memory-document pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.memory-create .field {
+  min-width: 0;
+}
+.memory-document {
+  margin: 1.3rem 0;
+}
+@media (max-width: 640px) {
+  .memory-page {
+    padding: 1rem;
+  }
+  .namespace-bar {
+    padding: 0.8rem 1rem;
+  }
+  .app-header {
+    flex-wrap: wrap;
+  }
+  .app-header nav {
+    flex-wrap: wrap;
+  }
+}

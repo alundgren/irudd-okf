@@ -1,9 +1,12 @@
 import type { Html } from "foldkit";
 import type { ConceptSummary } from "../../core/src/contracts.ts";
 import { dirty, type Message, type Model } from "./model.ts";
+import { memoryViews, memoryStatus } from "./memory-view.ts";
+import { structuredMemory } from "./memory-editor.ts";
 import { lineChanges, renderMarkdown } from "./content.ts";
 
 export function view(model: Model, h: Html.HtmlBuilder<Message>): Html.Html {
+  const memory = memoryViews(model, h);
   const busy = (lane: string) => model.busy.includes(lane);
   const button = (text: string, message: Message, disabled = false, className = "") =>
     h.button(
@@ -120,6 +123,7 @@ export function view(model: Model, h: Html.HtmlBuilder<Message>): Html.Html {
                     [],
                     [
                       link(hit),
+                      memoryStatus(hit, h),
                       h.p([], [hit.excerpt || hit.description]),
                       h.small(
                         [h.Class("provenance")],
@@ -157,6 +161,7 @@ export function view(model: Model, h: Html.HtmlBuilder<Message>): Html.Html {
                 button("Add concept", { _tag: "New" }, !writable || !!model.draft, "primary"),
               ],
             ),
+            model.profile?.mode === "memory" ? memory.create() : null,
             error("list"),
             busy("list") ? h.p([], ["Loading concepts…"]) : null,
             !model.concepts.length && !busy("list")
@@ -171,6 +176,7 @@ export function view(model: Model, h: Html.HtmlBuilder<Message>): Html.Html {
                     [h.Class(item.path === concept?.path ? "current" : "")],
                     [
                       link(item),
+                      memoryStatus(item, h),
                       h.small([], [`${item.path}${item.malformed ? " · needs repair" : ""}`]),
                     ],
                   ),
@@ -195,6 +201,7 @@ export function view(model: Model, h: Html.HtmlBuilder<Message>): Html.Html {
                     [],
                     [
                       error("concept"),
+                      error("mutation"),
                       busy("concept") ? h.p([h.Role("status")], ["Loading document…"]) : null,
                       !concept && !busy("concept")
                         ? h.p(
@@ -260,6 +267,7 @@ export function view(model: Model, h: Html.HtmlBuilder<Message>): Html.Html {
                                     ),
                                   )
                                 : null,
+                              memory.document(),
                               renderMarkdown(concept.body, concept, h, open),
                               h.details(
                                 [h.Class("metadata")],
@@ -425,18 +433,46 @@ export function view(model: Model, h: Html.HtmlBuilder<Message>): Html.Html {
                       ],
                     )
                   : null,
+                draft.operation === "write" && structuredMemory(draft.raw)
+                  ? memory.structuredEditor()
+                  : null,
                 draft.operation === "write"
-                  ? h.label(
-                      [h.Class("field")],
+                  ? h.details(
                       [
-                        h.span([], ["Raw Markdown, including YAML metadata"]),
-                        h.textarea([
-                          h.Id("draft-markdown"),
-                          h.Class("raw-editor"),
-                          h.Value(draft.raw),
-                          h.OnInput((value) => ({ _tag: "Draft", field: "raw", value })),
-                          h.Spellcheck(false),
-                        ]),
+                        h.Key("raw-editor"),
+                        h.Open(model.disclosures["raw-editor"] ?? !structuredMemory(draft.raw)),
+                        h.OnToggle((value) => ({ _tag: "Disclosure", key: "raw-editor", value })),
+                      ],
+                      [
+                        h.summary(
+                          [
+                            h.OnClick(
+                              {
+                                _tag: "Disclosure",
+                                key: "raw-editor",
+                                value: !(
+                                  model.disclosures["raw-editor"] ?? !structuredMemory(draft.raw)
+                                ),
+                              },
+                              { defaultAction: "Prevent" },
+                            ),
+                          ],
+                          ["Edit raw Markdown"],
+                        ),
+                        h.label(
+                          [h.Class("field")],
+                          [
+                            h.span([], ["Raw Markdown, including YAML metadata"]),
+                            h.textarea([
+                              h.Attribute("aria-label", "Raw Markdown, including YAML metadata"),
+                              h.Id("draft-markdown"),
+                              h.Class("raw-editor"),
+                              h.Value(draft.raw),
+                              h.OnInput((value) => ({ _tag: "Draft", field: "raw", value })),
+                              h.Spellcheck(false),
+                            ]),
+                          ],
+                        ),
                       ],
                     )
                   : h.pre([], [draft.raw]),
@@ -830,6 +866,7 @@ export function view(model: Model, h: Html.HtmlBuilder<Message>): Html.Html {
                           [],
                           [
                             link(node),
+                            memoryStatus(node, h),
                             h.small([h.Class("provenance")], [`${node.bundle} / ${node.path}`]),
                           ],
                         ),
@@ -837,6 +874,25 @@ export function view(model: Model, h: Html.HtmlBuilder<Message>): Html.Html {
                     ),
                   ],
                 ),
+                data.edges.length
+                  ? h.details(
+                      [h.Class("graph-relations")],
+                      [
+                        h.summary([], ["Source and memory links"]),
+                        h.ul(
+                          [],
+                          data.edges.map((edge) =>
+                            h.li(
+                              [],
+                              [
+                                `${edge.from} → ${edge.label || edge.to} · ${edge.to}${edge.broken ? " · missing" : edge.external ? " · external" : ""}`,
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    )
+                  : null,
                 data.edges.some((edge) => edge.broken || edge.external)
                   ? h.div(
                       [h.Class("connections")],
@@ -1066,6 +1122,18 @@ export function view(model: Model, h: Html.HtmlBuilder<Message>): Html.Html {
                 model.view === "graph" ? "active" : "",
               ),
               button(
+                "Maintain",
+                { _tag: "View", view: "maintenance" },
+                !model.bundle,
+                model.view === "maintenance" ? "active" : "",
+              ),
+              button(
+                "Profile",
+                { _tag: "View", view: "profile" },
+                !model.bundle,
+                model.view === "profile" ? "active" : "",
+              ),
+              button(
                 "Review changes",
                 { _tag: "View", view: "review" },
                 !model.bundle,
@@ -1084,6 +1152,7 @@ export function view(model: Model, h: Html.HtmlBuilder<Message>): Html.Html {
               h.span([], ["Source bundle"]),
               h.select(
                 [
+                  h.Attribute("aria-label", "Source bundle"),
                   h.Value(model.bundle),
                   h.OnChange((bundle) => ({ _tag: "Scope", bundle })),
                   h.Disabled(!model.context?.bundles.length),
@@ -1116,6 +1185,49 @@ export function view(model: Model, h: Html.HtmlBuilder<Message>): Html.Html {
           button("Refresh", { _tag: "Refresh" }, model.busy.length > 0),
         ],
       ),
+      model.profile?.mode === "memory"
+        ? h.div(
+            [h.Class("namespace-bar")],
+            [
+              h.span([], ["Recall namespaces"]),
+              button("All namespaces", { _tag: "RecallAll" }, !model.selectedNamespaces.length),
+              h.span(
+                [h.Class("muted")],
+                [
+                  model.selectedNamespaces.length
+                    ? "Selected names plus shared"
+                    : "All namespaces, including shared",
+                ],
+              ),
+              ...(model.namespaces?.namespaces
+                .filter((name) => name !== "shared")
+                .map((name) =>
+                  h.label(
+                    [h.Class("check")],
+                    [
+                      h.input([
+                        h.Type("checkbox"),
+                        h.Checked(model.selectedNamespaces.includes(name)),
+                        h.OnChange(() => ({ _tag: "Namespaces", name })),
+                      ]),
+                      name,
+                    ],
+                  ),
+                ) ?? []),
+              h.label(
+                [h.Class("check")],
+                [
+                  h.input([
+                    h.Type("checkbox"),
+                    h.Checked(model.includeExcluded),
+                    h.OnChange(() => ({ _tag: "IncludeExcluded", value: !model.includeExcluded })),
+                  ]),
+                  "Include excluded memories",
+                ],
+              ),
+            ],
+          )
+        : null,
       h.form(
         [h.Class("search-bar"), h.OnSubmit({ _tag: "Search" })],
         [
@@ -1156,7 +1268,15 @@ export function view(model: Model, h: Html.HtmlBuilder<Message>): Html.Html {
           )
         : null,
       error("validation"),
-      model.view === "graph" ? graph() : model.view === "review" ? review() : wiki(),
+      model.view === "graph"
+        ? graph()
+        : model.view === "review"
+          ? review()
+          : model.view === "maintenance"
+            ? memory.maintenance()
+            : model.view === "profile"
+              ? memory.profile()
+              : wiki(),
       model.pendingIntent
         ? h.div(
             [h.Class("modal-backdrop")],
