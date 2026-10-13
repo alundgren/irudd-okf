@@ -263,3 +263,29 @@ describe('optional navigation lint', () => {
     expect((await run(store.validate({ bundle: 'repo', lint: true }))).warnings).toBe(0);
   });
 });
+
+
+describe('memory initialization rollback', () => {
+  it('refuses an existing canonical policy before creating an index and preserves an existing ignore file', async () => {
+    const f = await fixture(); await f.write('memory-policy.md', 'existing policy');
+    await expect(run(initializeBundle(f.bundle))).rejects.toMatchObject({ code: 'ALREADY_EXISTS' });
+    await expect(fs.stat(path.join(f.bundle, 'index.md'))).rejects.toMatchObject({ code: 'ENOENT' });
+    await fs.unlink(path.join(f.bundle, 'memory-policy.md')); await fs.writeFile(path.join(f.bundle, '.gitignore'), 'custom\n');
+    await run(initializeBundle(f.bundle)); expect(await fs.readFile(path.join(f.bundle, '.gitignore'), 'utf8')).toBe('custom\n');
+  });
+  it('removes its new index after a failed policy write, while preserving any external edit', async () => {
+    const f = await fixture(); const link = fs.link; let external = false;
+    vi.spyOn(fs, 'link').mockImplementation(async (source, target) => {
+      if (String(target) === path.join(f.bundle, 'memory-policy.md')) {
+        if (external) await fs.writeFile(path.join(f.bundle, 'index.md'), '# External edit\n');
+        throw Object.assign(new Error('Injected policy write failure'), { code: 'EIO' });
+      }
+      return link(source, target);
+    });
+    await expect(run(initializeBundle(f.bundle))).rejects.toMatchObject({ code: 'IO_ERROR' });
+    await expect(fs.stat(path.join(f.bundle, 'index.md'))).rejects.toMatchObject({ code: 'ENOENT' });
+    external = true;
+    await expect(run(initializeBundle(f.bundle))).rejects.toMatchObject({ code: 'ROLLBACK_INCOMPLETE' });
+    expect(await fs.readFile(path.join(f.bundle, 'index.md'), 'utf8')).toBe('# External edit\n');
+  });
+});

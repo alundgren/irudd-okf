@@ -72,7 +72,6 @@ export function parseConcept(bundle: string, file: string, raw: string): Concept
   if (metadata.verified && !Array.isArray(metadata.verified) && typeof metadata.verified === 'object') metadata.verified = [metadata.verified];
   for (const field of ['title', 'description', 'resource']) if (originalMetadata[field] !== undefined && typeof originalMetadata[field] !== 'string') report('warning', 'OPTIONAL_FIELD', `${field} should be a string.`);
   if (metadata.tags !== undefined && (!Array.isArray(metadata.tags) || metadata.tags.some(tag => typeof tag !== 'string'))) report('warning', 'OPTIONAL_FIELD', 'tags should be a list of strings.');
-  if (typeof metadata.stale_after === 'string' && Date.parse(metadata.stale_after) < Date.now()) report('warning', 'STALE', 'The concept is past stale_after.');
   const links: Link[] = [];
   for (const token of markdown.parse(body, {})) {
     const children = token.children ?? [];
