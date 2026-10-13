@@ -121,7 +121,11 @@ export async function withLock<A>(root: string, run: () => Promise<A>): Promise<
   const lock = path.join(folder, 'write.lock');
   let handle;
   try { handle = await fs.open(lock, 'wx', 0o600); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new OkfError('LOCKED', 'Another write is active. Inspect .irudd-okf/write.lock if a process stopped unexpectedly.'); throw error; }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+      let owner: Record<string, unknown> = {};
+      try { const parsed = JSON.parse(await fs.readFile(lock, 'utf8')); if (parsed && typeof parsed === 'object') owner = parsed; } catch {}
+      throw new OkfError('LOCKED', 'A write lock exists. Inspect the owner and use maintenance recovery only after the process stopped.', { lockPath: lock, ownerPid: owner.pid ?? null, startedAt: owner.startedAt ?? null });
+    } throw error; }
   try { await handle.writeFile(JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() })); return await run(); }
   finally { await handle.close(); await fs.unlink(lock); }
 }
