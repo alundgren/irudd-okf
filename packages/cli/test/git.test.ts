@@ -25,6 +25,23 @@ const fixture = async () => {
   }) };
 };
 describe('isolated memory PR preparation', () => {
+  it('omits recovery files from status and rejects publishing internal paths at every directory level', async () => {
+    const { root, memory } = await fixture();
+    const internal = ['.irudd-okf/recovery/original.md', 'topics/.irudd-okf/recovery/original.md', 'topics/.git/recovery.md'];
+    for (const file of internal) {
+      await mkdir(resolve(root, '.okf', file, '..'), { recursive: true });
+      await writeFile(resolve(root, '.okf', file), '---\ntype: Fact\n---\nPrivate recovery content.\n');
+    }
+    await writeFile(resolve(root, '.okf', '.irudd-okf-note.md'), '---\ntype: Fact\n---\nOrdinary knowledge.\n');
+    await writeFile(resolve(root, '.okf', 'rule.md'), '---\ntype: Rule\n---\nReviewed rule.\n');
+    const status = await Effect.runPromise(memory.status('repo'));
+    expect(status.files.map(file => file.path).sort()).toEqual(['.irudd-okf-note.md', 'rule.md']);
+    for (const path of internal) await expect(Effect.runPromise(memory.preview('repo', [path], 'origin/main'))).rejects.toMatchObject({ code: 'UNSAFE_PATH' });
+    const preview = await Effect.runPromise(memory.preview('repo', ['.irudd-okf-note.md', 'rule.md'], 'origin/main'));
+    expect(preview.paths).toEqual(['.irudd-okf-note.md', 'rule.md']);
+    expect(preview.diff).toContain('Ordinary knowledge.');
+    expect(preview.diff).not.toContain('Private recovery content.');
+  });
   it('preserves staged code and selected base identity', async () => {
     const { root, memory } = await fixture();
     git(root, 'update-ref', 'refs/remotes/origin/aaa-other', 'HEAD');
