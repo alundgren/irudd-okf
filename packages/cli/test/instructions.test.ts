@@ -59,7 +59,7 @@ describe('owned provider instructions', () => {
     const codex = await run(installInstructions('codex', f.bundle, f.options));
     expect(codex).toMatchObject({ changed: true, installed: true, shadowed: false, file: f.codex });
     expect(await fs.readFile(codex.recoveryPath!, 'utf8')).toBe(original);
-    expect((await fs.stat(f.codex)).mode & 0o777).toBe(0o640);
+    if (process.platform !== 'win32') expect((await fs.stat(f.codex)).mode & 0o777).toBe(0o640);
     expect(await fs.readFile(f.codex, 'utf8')).toContain('"' + f.bundle.root + '"');
     expect((await run(installInstructions('codex', f.bundle, f.options))).changed).toBe(false);
     await expect(fs.stat(f.claude)).rejects.toMatchObject({ code: 'ENOENT' });
@@ -136,7 +136,7 @@ describe('owned provider instructions', () => {
     expect(await fs.readFile(f.codex, 'utf8')).toBe('# External edit\n');
   });
 
-  it.each(['text', 'permissions', 'override-existing', 'override-new'])('rechecks %s after temporary-file preparation', async kind => {
+  it.each(['text', ...(process.platform === 'win32' ? [] : ['permissions']), 'override-existing', 'override-new'])('rechecks %s after temporary-file preparation', async kind => {
     const f = await fixture(); await fs.mkdir(path.dirname(f.codex));
     if (kind !== 'override-new') await fs.writeFile(f.codex, '# Original\n', { mode: 0o600 });
     const open = fs.open;

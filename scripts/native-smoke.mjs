@@ -3,7 +3,7 @@ import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { realpath, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-const executable = resolve(process.argv[2] ?? 'build/irudd-okf');
+const executable = resolve(process.argv[2] ?? (process.platform === 'win32' ? 'build/irudd-okf.exe' : 'build/irudd-okf'));
 const cwd = await realpath(await mkdtemp(resolve(tmpdir(), 'okf-native-')));
 const environment = { ...process.env, PATH: '/nonexistent', XDG_CONFIG_HOME: resolve(cwd, 'config'), XDG_STATE_HOME: resolve(cwd, 'state'), CODEX_HOME: resolve(cwd, 'codex'), CLAUDE_CONFIG_DIR: resolve(cwd, 'claude') };
 const run = (...args) => JSON.parse(execFileSync(executable, args, { cwd, encoding: 'utf8', env: environment }));

@@ -3,7 +3,7 @@ import * as fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { Effect } from 'effect';
-import { normalizeSystemPath, canonicalDirectory, ensureDirectory } from '../src/files.ts';
+import { normalizeSystemPath, canonicalDirectory, ensureDirectory, cleanPath } from '../src/files.ts';
 import { createStore, initializeBundle, resolveContext, registerBundle } from '../src/index.ts';
 
 vi.mock('node:fs/promises', async importOriginal => ({ ...await importOriginal<typeof import('node:fs/promises')>() }));
@@ -50,7 +50,7 @@ describe('platform directory aliases', () => {
   it('keeps actual user-created roots and parent symlinks blocked', async () => {
     const lexicalRoot = await fs.mkdtemp(path.join(process.platform === 'darwin' ? '/tmp' : os.tmpdir(), 'okf-platform-'));
     const root = await fs.realpath(lexicalRoot); directories.push(root);
-    const actual = path.join(root, 'actual'); await fs.mkdir(actual); await fs.symlink(actual, path.join(root, 'link'));
+    const actual = path.join(root, 'actual'); await fs.mkdir(actual); await fs.symlink(actual, path.join(root, 'link'), 'dir');
     await expect(canonicalDirectory(path.join(lexicalRoot, 'link'))).rejects.toMatchObject({ code: 'UNSAFE_PATH' });
     await expect(ensureDirectory(path.join(lexicalRoot, 'link', 'new'))).rejects.toMatchObject({ code: 'UNSAFE_PATH' });
     await expect(fs.stat(path.join(actual, 'new'))).rejects.toMatchObject({ code: 'ENOENT' });
@@ -93,5 +93,15 @@ describe('platform directory aliases', () => {
     const concept = await Effect.runPromise(direct.read('temp', 'rule.md'));
     await Effect.runPromise(direct.save({ bundle: 'temp', path: 'rule.md', raw: concept.raw + 'Direct context edit.\n', expectedHash: concept.hash }));
     expect((await Effect.runPromise(direct.search('direct'))).results[0].path).toBe('rule.md');
+  });
+});
+
+
+describe('Windows document paths', () => {
+  it.each(['C:rule.md', 'rule.md:stream', 'CON.md', 'folder/NUL', 'COM1.md', 'LPT¹.md', 'trailing./rule.md', 'trailing /rule.md', '.GIT/config.md', '.IRUDD-OKF/recovery.md', 'wild?.md'])('rejects unsafe Windows path %s', input => {
+    expect(() => cleanPath(input, 'win32')).toThrow(/relative path/);
+  });
+  it('keeps bundle paths separated by forward slashes on Windows', () => {
+    expect(cleanPath('notes/my rule.md', 'win32')).toBe('notes/my rule.md');
   });
 });

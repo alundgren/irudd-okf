@@ -127,9 +127,9 @@ describe('scope and safe mutations', () => {
     const f = await fixture(); await f.write('target.md', document('Target')); await fs.symlink(path.join(f.bundle, 'target.md'), path.join(f.bundle, 'link.md'));
     await expect(run(f.store.read('repo', 'link.md'))).rejects.toMatchObject({ code: 'UNSAFE_PATH' });
     await expect(run(f.store.save({ bundle: 'repo', path: '../outside.md', raw: '', expectedHash: null }))).rejects.toMatchObject({ code: 'UNSAFE_PATH' });
-    await fs.symlink(os.tmpdir(), path.join(f.bundle, 'linked'));
+    await fs.symlink(os.tmpdir(), path.join(f.bundle, 'linked'), 'dir');
     await expect(run(f.store.save({ bundle: 'repo', path: 'linked/new.md', raw: '', expectedHash: null }))).rejects.toMatchObject({ code: 'UNSAFE_PATH' });
-    await fs.symlink(os.tmpdir(), path.join(f.bundle, '.irudd-okf'));
+    await fs.symlink(os.tmpdir(), path.join(f.bundle, '.irudd-okf'), 'dir');
     await expect(run(f.store.save({ bundle: 'repo', path: 'new.md', raw: '', expectedHash: null }))).rejects.toMatchObject({ code: 'UNSAFE_PATH' });
   });
   it('renames links and reference definitions without rewriting prose, code or metadata', async () => {
@@ -215,7 +215,7 @@ describe('scope and safe mutations', () => {
   });
   it('rejects symlinked initialization parents before creating folders', async () => {
     const f = await fixture(); const outside = path.join(f.root, 'outside'); await fs.mkdir(outside);
-    const link = path.join(f.root, 'link'); await fs.symlink(outside, link);
+    const link = path.join(f.root, 'link'); await fs.symlink(outside, link, 'dir');
     await expect(run(initializeBundle(path.join(link, 'created')))).rejects.toMatchObject({ code: 'UNSAFE_PATH' });
     await expect(fs.stat(path.join(outside, 'created'))).rejects.toMatchObject({ code: 'ENOENT' });
   });

@@ -8,18 +8,23 @@ import { OkfError, type Operation, type Bundle } from './contracts.ts';
 export const hash = (raw: string) => createHash('sha256').update(raw).digest('hex');
 export const operation = <A>(run: () => Promise<A>): Operation<A> => Effect.tryPromise({ try: run, catch: error => error instanceof OkfError ? error : new OkfError('IO_ERROR', error instanceof Error ? error.message : String(error)) });
 export const absent = (error: unknown) => (error as NodeJS.ErrnoException).code === 'ENOENT';
-export const within = (root: string, target: string) => target === root || target.startsWith(root + path.sep);
+export const within = (root: string, target: string) => {
+  const relative = path.relative(root, target);
+  return relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+};
+const sameSystemPath = (first: string, second: string) => path.relative(first, second) === '';
 export async function normalizeSystemPath(input: string, platform: NodeJS.Platform = process.platform): Promise<string> {
-  const absolute = path.resolve(input);
+  const paths = platform === 'darwin' ? path.posix : path;
+  const absolute = paths.resolve(input);
   if (platform !== 'darwin') return absolute;
-  const name = absolute.split(path.sep)[1];
+  const name = absolute.split(paths.sep)[1];
   if (!['var', 'tmp', 'etc'].includes(name)) return absolute;
-  const alias = path.join(path.parse(absolute).root, name);
+  const alias = paths.join(paths.parse(absolute).root, name);
   const information = await fs.lstat(alias);
   if (!information.isSymbolicLink()) return absolute;
   const parent = await fs.lstat('/private');
   const target = `/private/${name}`;
-  const destination = path.resolve(path.dirname(alias), await fs.readlink(alias));
+  const destination = paths.resolve(paths.dirname(alias), await fs.readlink(alias));
   const targetInformation = await fs.lstat(target);
   if (information.uid !== 0 || destination !== target || parent.uid !== 0 || !parent.isDirectory() || parent.isSymbolicLink() || (parent.mode & 0o022) !== 0 || targetInformation.uid !== 0 || !targetInformation.isDirectory() || targetInformation.isSymbolicLink()) {
     throw new OkfError('UNSAFE_PATH', 'Only root-owned standard macOS directory aliases are allowed.', { path: input });
@@ -30,11 +35,14 @@ export async function canonicalDirectory(input: string): Promise<string> {
   const normalized = await normalizeSystemPath(input);
   const root = await fs.realpath(normalized);
   const information = await fs.lstat(normalized);
-  if (root !== normalized || !information.isDirectory() || information.isSymbolicLink()) throw new OkfError('UNSAFE_PATH', 'Directories must not contain user-created symbolic links.', { path: input });
+  if (!sameSystemPath(root, normalized) || !information.isDirectory() || information.isSymbolicLink()) throw new OkfError('UNSAFE_PATH', 'Directories must not contain user-created symbolic links.', { path: input });
   return root;
 }
-export function cleanPath(input: string): string {
+export function cleanPath(input: string, platform: NodeJS.Platform = process.platform): string {
   if (!input || input.includes('\0') || input.includes('\\') || path.isAbsolute(input) || input.split('/').includes('..')) throw new OkfError('UNSAFE_PATH', 'Use a relative path within the bundle.', { path: input });
+  if (platform === 'win32' && input.split('/').some(part => /[<>:"|?*\u0000-\u001f]/.test(part) || /[. ]$/.test(part) || /^(?:con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i.test(part) || ['.git', '.irudd-okf'].includes(part.toLowerCase()))) {
+    throw new OkfError('UNSAFE_PATH', 'Use a relative path without Windows device names, reserved directories or invalid filename characters.', { path: input });
+  }
   const normalized = path.posix.normalize(input);
   if (normalized === '.' || normalized.startsWith('../') || normalized.startsWith('.irudd-okf/') || normalized.startsWith('.git/')) throw new OkfError('UNSAFE_PATH', 'The path is reserved or outside the bundle.', { path: input });
   return normalized;
@@ -131,7 +139,7 @@ export async function atomicCreate(file: string, raw: string, beforePublish?: ()
 
 export async function readRaw(bundle: Bundle, relative: string): Promise<string> {
   const file = path.join(await normalizeSystemPath(bundle.root), cleanPath(relative));
-  if (await fs.realpath(file) !== file) throw new OkfError('UNSAFE_PATH', 'Symbolic links are not supported inside bundles.', { path: relative });
+  if (!sameSystemPath(await fs.realpath(file), file)) throw new OkfError('UNSAFE_PATH', 'Symbolic links are not supported inside bundles.', { path: relative });
   const handle = await fs.open(file, constants.O_RDONLY | constants.O_NOFOLLOW);
   try { return await handle.readFile('utf8'); } finally { await handle.close(); }
 }

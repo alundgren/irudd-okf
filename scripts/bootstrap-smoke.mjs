@@ -26,7 +26,7 @@ const install = (environment = env) => spawnSync('/bin/bash', [], { input: insta
 try {
   await mkdir(join(upstream, 'scripts'), { recursive: true });
   await mkdir(tools);
-  for (const file of ['install-cli.mjs', 'shell-path.mjs']) await copyFile(resolve('scripts', file), join(upstream, 'scripts', file));
+  for (const file of ['install-cli.mjs', 'shell-path.mjs', 'windows-path.ps1']) await copyFile(resolve('scripts', file), join(upstream, 'scripts', file));
   await writeFile(join(upstream, 'package.json'), JSON.stringify({ version: '0.1.0', devDependencies: { 'vite-plus': '1.0.0' } }, null, 2));
   await writeFile(join(upstream, '.gitignore'), 'build/\n');
   git('init', '--initial-branch=main');

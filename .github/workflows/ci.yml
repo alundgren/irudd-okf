@@ -2,6 +2,7 @@ name: Product validation
 on:
   push:
     branches: [main, okf/product-integration]
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 permissions:
@@ -15,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-15-intel, macos-15]
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-15-intel, macos-15, windows-2025]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
@@ -30,6 +31,15 @@ jobs:
       - run: node scripts/native-smoke.mjs
       - run: node scripts/installer-smoke.mjs
       - run: node scripts/bootstrap-smoke.mjs
+        if: runner.os != 'Windows'
+      - run: node scripts/windows-bootstrap-smoke.mjs
+        if: runner.os == 'Windows'
+      - run: node scripts/package-release.mjs "${{ runner.temp }}/okf-release"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.os }}
+          path: ${{ runner.temp }}/okf-release/irudd-okf-*
+          if-no-files-found: error
   browser:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -53,3 +63,28 @@ jobs:
         with:
           name: browser-evidence
           path: ${{ runner.temp }}/okf-browser-smoke/browser-*
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [native, browser]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.10.0
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: native-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/okf-release
+      - run: node scripts/release-checksums.mjs "$OKF_RELEASE_DIR"
+        env:
+          OKF_RELEASE_DIR: ${{ runner.temp }}/okf-release
+      - run: gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes "$OKF_RELEASE_DIR"/*
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          OKF_RELEASE_DIR: ${{ runner.temp }}/okf-release

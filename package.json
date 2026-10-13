@@ -18,7 +18,7 @@
     "test": "vp test run",
     "typecheck": "tsc --noEmit",
     "check": "npm run typecheck && npm test",
-    "okf": "TSX_DISABLE_CACHE=1 node --import tsx packages/cli/src/main.ts"
+    "okf": "node --import tsx packages/cli/src/main.ts"
   },
   "dependencies": {
     "@effect/platform-browser": "4.0.0",

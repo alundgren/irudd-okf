@@ -22,19 +22,53 @@ rule precedence. Repository guidance decides how agents use its memories.
 
 ## Install
 
-Linux with glibc and macOS are supported on x64 and arm64.
+Windows 11 is supported on x64. Linux with glibc and macOS are supported on
+x64 and arm64.
+
+On Windows, run this in 64-bit PowerShell after installing Git for Windows:
+
+```powershell
+irm https://raw.githubusercontent.com/alundgren/irudd-okf/main/install.ps1 | iex
+```
+
+The Windows installer builds from its own clone in
+`%LOCALAPPDATA%\irudd-okf\source`, installs Vite+ if needed, and puts
+`irudd-okf.exe` in `%LOCALAPPDATA%\irudd-okf\bin`. It adds that directory to
+your user PATH. Open a new terminal after installing. Windows arm64 is not
+supported.
+
+On Linux or macOS:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/alundgren/irudd-okf/main/install.sh | bash
 ```
 
-The installer keeps its own clone in `~/.local/share/irudd-okf/source`, installs
+The Unix installer keeps its own clone in `~/.local/share/irudd-okf/source`, installs
 Vite+ if needed, and builds the CLI locally. It installs into `~/.local/bin`
 and adds that directory to your bash or zsh login profile. Git and curl are
 required. Open a new terminal after installing.
 
 The executable includes its Node runtime, wiki, graph, and agent skill.
 Run `irudd-okf licenses` to read the included runtime and dependency notices.
+
+## Release packages
+
+Tagged releases include `irudd-okf-windows-x64.zip`, plus Linux and macOS
+archives for x64 and arm64. Each archive includes the standalone executable,
+README, product license and dependency notices. No installed Node is needed
+to run it. `SHA256SUMS` contains the SHA-256 checksum of each archive.
+
+For a portable Windows installation, download the ZIP from
+[GitHub Releases](https://github.com/alundgren/irudd-okf/releases) and extract it:
+
+```powershell
+Expand-Archive .\irudd-okf-windows-x64.zip -DestinationPath .\irudd-okf
+.\irudd-okf\irudd-okf.exe --version
+```
+
+Source installations support `irudd-okf upgrade`. Portable release executables
+have no source installation record; replace them with a newer release archive
+or use the installer above to enable source upgrades.
 
 ## Try it
 
@@ -76,7 +110,7 @@ If an older CLI rejects `--check`, Scope should show
 `irudd-okf is too old for automatic upgrades`.
 
 Remove the executable, its installation record, and the installation root to
-uninstall. Your bundles and configuration remain ordinary files.
+uninstall. On Windows, also remove the installation directory from your user PATH. Your bundles and configuration remain ordinary files.
 
 ## Files and agent discovery
 
@@ -244,7 +278,13 @@ node scripts/native-smoke.mjs
 npm run okf -- context
 ```
 
-Native CI executes the built client on Linux and macOS, each on x64 and arm64.
+Native CI executes the built client on Windows x64, and on Linux and macOS,
+each on x64 and arm64. Windows CI uses an x64 Windows Server 2025 runner.
+It tests the PowerShell installer, user PATH, source upgrades, and replacement
+of the running executable. Windows 11 desktop execution is not a separate CI job.
+All native jobs extract their release archive and repeat the standalone smoke
+checks. A pushed `v*` tag publishes all five packages and `SHA256SUMS` only
+after native and browser validation succeeds.
 Browser validation exercises the served wiki and graph. Run it with:
 
 ```sh

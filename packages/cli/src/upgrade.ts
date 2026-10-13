@@ -1,7 +1,7 @@
 import { Effect } from 'effect';
 import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, isAbsolute, join } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { OkfError, type Operation, type SourceInstallation, type UpgradeCheckResult, type UpgradeResult } from '../../core/src/contracts.ts';
 import { checkedProcess } from './process.ts';
 
@@ -53,7 +53,7 @@ export const checkUpgrade = (executable = process.execPath): Operation<UpgradeCh
 export const upgrade = (executable = process.execPath): Operation<UpgradeResult> => Effect.gen(function* () {
   const { directory, installation } = yield* installed(executable);
   const git = (...args: string[]) => checkedProcess('git', args, installation.source);
-  if ((yield* git('rev-parse', '--show-toplevel')) !== installation.source || (yield* git('branch', '--show-current')) !== 'main' || (yield* git('status', '--porcelain'))) {
+  if (resolve(yield* git('rev-parse', '--show-toplevel')) !== installation.source || (yield* git('branch', '--show-current')) !== 'main' || (yield* git('status', '--porcelain'))) {
     return yield* Effect.fail(new OkfError('UPGRADE_SOURCE_CHANGED', 'The installation clone must be clean and on main. Commit or move local changes first.', { source: installation.source }));
   }
   yield* git('fetch', '--no-tags', 'origin', 'main:refs/remotes/origin/main');
