@@ -67,7 +67,7 @@ try {
       namespace: 'payments', derived_from: [{ resource: '/facts/client-contract.md', content_hash: contract.memory.contentHash }],
     }),
     sources: [{ id: 'contract', resource: '/facts/client-contract.md' }], stale_after: future,
-  }, '# Applicability\n\nOnly the invented old client in this demo requires `client_id`. See the [example contract](/facts/client-contract.md).'));
+  }, '# Applicability\n\nOnly the invented old client in this demo requires `client_id`. See the [example contract](client-contract.md).'));
   const fact = call('read', 'demo', 'facts/compatibility.md');
   await save('procedures/retire-field.md', rawDocument({
     ...base('Rule', 'Example field retirement procedure', 'An invented procedure demonstrates a reviewed synthesis.', 'procedural', 'gold', {
@@ -77,7 +77,7 @@ try {
       ], prerequisites: ['/facts/compatibility.md'],
     }),
     sources: [{ id: 'episode', resource: '/episodes/attempt.md' }, { id: 'fact', resource: '/facts/compatibility.md' }], stale_after: future,
-  }, '# Trigger\n\nRetire `client_id` in the synthetic application.\n\n# Applicability\n\nThis procedure applies only to the invented client contract.\n\n# Prerequisites\n\nInspect the [example compatibility requirement](/facts/compatibility.md).\n\n# Steps\n\n1. Check whether the synthetic old client still sends the field.\n2. Keep the field while that client depends on it.\n3. Remove the field only after updating the example client.\n\n# Verification\n\nExercise both example client requests. Retain the [unsuccessful attempt](/episodes/attempt.md) as evidence.'));
+  }, '# Trigger\n\nRetire `client_id` in the synthetic application.\n\n# Applicability\n\nThis procedure applies only to the invented client contract.\n\n# Prerequisites\n\nInspect the [example compatibility requirement](../facts/compatibility.md).\n\n# Steps\n\n1. Check whether the synthetic old client still sends the field.\n2. Keep the field while that client depends on it.\n3. Remove the field only after updating the example client.\n\n# Verification\n\nExercise both example client requests. Retain the [unsuccessful attempt](../episodes/attempt.md) as evidence.'));
   let procedure = call('read', 'demo', 'procedures/retire-field.md');
   call('verify', 'demo', procedure.path, '--actor', 'process:demo-check', '--method', 'Compared the invented procedure with its synthetic source files.', '--expected', procedure.hash);
   procedure = call('read', 'demo', procedure.path);

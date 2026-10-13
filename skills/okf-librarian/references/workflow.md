@@ -64,6 +64,10 @@ Use the CLI maintenance proposal and preview workflow to produce a concrete
 diff. A proposal can contain new or revised notes and index edits. Include
 observed whole-file hashes, a reason, and any unresolved questions. Store proposal
 files outside the repository. Do not apply them in propose mode.
+Use exactly the discovered request schema. Record evidence gaps in the reason
+and external report; do not invent fields such as `unresolvedQuestions` or
+per-change namespace controls. The engine's `unresolved` output reports checks
+it performed, so an empty array does not settle a question about real evidence.
 
 Changing or rejecting a source requires examining its dependents. Expiration
 from recall alone does not make a historical observation false. Before deleting

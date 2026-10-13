@@ -363,6 +363,14 @@ describe('migration preservation and domain request validation', () => {
     await expect(run(f.store.applyMaintenance({preview}))).rejects.toMatchObject({code:'INVALID_PREVIEW'});
     expect((await run(f.store.read('repo',note.path))).raw).toBe(note.raw);
   });
+  it('rejects unsupported proposal controls rather than silently ignoring them', async () => {
+    const f=await fixture(); const note=await f.note('note.md');
+    const change={path:note.path,expectedHash:note.hash,raw:note.raw+'Proposed correction.\n'};
+    await expect(run(f.store.previewMaintenance({...proposal([change]),unresolvedQuestions:['Missing outcome']} as never))).rejects.toMatchObject({code:'INVALID_REQUEST'});
+    await expect(run(f.store.previewMaintenance(proposal([{...change,namespace:'shared'} as never])))).rejects.toMatchObject({code:'INVALID_REQUEST'});
+    await expect(run(f.store.previewMigration({bundle:'repo',decisions:{'note.md':{kind:'semantic',unresolvedQuestions:['Missing outcome']} as never}}))).rejects.toMatchObject({code:'INVALID_REQUEST'});
+    expect((await run(f.store.read('repo',note.path))).raw).toBe(note.raw);
+  });
   it('uses numeric-offset timestamp boundaries and diagnoses contradictory review identity', async () => {
     let time=Date.parse('2026-10-01T21:59:59Z');const f=await fixture({now:()=>new Date(time)});
     let note=await f.note('offset.md',undefined,'semantic',[{path:['generated','at'],value:'2026-10-02T00:00:00+02:00'},{path:['memory','expires_at'],value:'2026-10-02T00:00:00+02:00'}]);

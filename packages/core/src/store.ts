@@ -260,7 +260,7 @@ export function createStore(input: MemoryContext, options: StoreOptions = {}): S
       }
       if (terms.length + filters.length > 32) throw new OkfError('QUERY_LIMIT', 'Search queries are limited to 32 terms and filters.');
       const results = [];
-      for (const concept of recall(await load(options.bundle, false), options, options.bundle).filter(concept => !reserved(concept.path))) {
+      for (const concept of recall(await load(options.bundle, false), { namespaces: options.namespaces, includeExcluded: options.includeExcluded }, options.bundle).filter(concept => !reserved(concept.path))) {
         if (!filters.every(filter => filter.key === 'bundle' ? concept.bundle.toLowerCase() === filter.value : filter.key === 'type' ? concept.type?.toLowerCase() === filter.value : filter.key === 'tag' ? concept.tags.some(tag => tag.toLowerCase() === filter.value) : filter.key === 'exact' ? concept.title.toLowerCase() === filter.value || concept.path.toLowerCase() === filter.value : concept.path.toLowerCase().includes(filter.value))) continue;
         const fields = [{ name: 'title', text: concept.title, weight: 12 }, { name: 'path', text: concept.path, weight: 8 }, { name: 'tags', text: concept.tags.join(' '), weight: 10 }, { name: 'description', text: concept.description, weight: 6 }, { name: 'type', text: concept.type ?? '', weight: 4 }, { name: 'body', text: concept.body, weight: 1 }].map(field => ({ ...field, text: field.text.toLowerCase() }));
         let score = 0;
@@ -278,7 +278,7 @@ export function createStore(input: MemoryContext, options: StoreOptions = {}): S
     }),
     graph: (options: import('./contracts.ts').GraphOptions = {}) => operation(async () => {
       decode(GraphOptionsSchema, options);
-      const documents = recall(await load(options.bundle), options, options.bundle).filter(concept => !reserved(concept.path));
+      const documents = recall(await load(options.bundle), { namespaces: options.namespaces, includeExcluded: options.includeExcluded }, options.bundle).filter(concept => !reserved(concept.path));
       const limit = bounded(options.limit, 80, 250);
       const depth = Number.isFinite(options.depth) ? Math.max(0, Math.min(3, Math.floor(options.depth!))) : 1;
       const all = new Map(documents.map(concept => [id(concept), concept]));

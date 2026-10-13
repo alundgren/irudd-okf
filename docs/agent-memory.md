@@ -273,6 +273,9 @@ irudd-okf maintenance apply --file /tmp/preview.json
 
 Save the returned preview JSON to the second file after inspecting its changes
 and diagnostics. Preview guards cover affected files and supporting reads.
+JSON requests reject unexpected fields. Evidence gaps belong in the proposal
+reason and reviewer report; an empty engine `unresolved` result covers only the
+checks the engine can perform.
 Changed sources, backlinks, or document inventory require a fresh preview.
 Protected apply preserves
 external edits and journals progress for restart. A retry distinguishes an

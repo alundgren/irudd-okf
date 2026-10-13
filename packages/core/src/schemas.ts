@@ -6,8 +6,8 @@ export const WriteSchema = Schema.Struct({ bundle: Schema.String, path: Schema.S
 export const DeleteSchema = Schema.Struct({ bundle: Schema.String, path: Schema.String, expectedHash: Schema.String, authorizePersonal: Schema.optional(Schema.Boolean) });
 export const RenameSchema = Schema.Struct({ ...DeleteSchema.fields, newPath: Schema.String, updateLinks: Schema.optional(Schema.Boolean), previewHash: Schema.optional(Schema.String) });
 export function decode<S extends Schema.ConstraintDecoder<unknown>>(schema: S, value: unknown, code = 'INVALID_REQUEST') {
-  try { return Schema.decodeUnknownSync(schema)(value); }
-  catch { throw new OkfError(code, code === 'INVALID_CONFIG' ? 'Runtime configuration does not match version 1.' : 'The request contains missing or invalid fields.'); }
+  try { return Schema.decodeUnknownSync(schema, { onExcessProperty: 'error' })(value); }
+  catch { throw new OkfError(code, code === 'INVALID_CONFIG' ? 'Runtime configuration does not match version 1.' : 'The request contains missing, invalid or unexpected fields.'); }
 }
 
 const Kind = Schema.Literals(['procedural', 'episodic', 'semantic']);

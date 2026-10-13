@@ -20,6 +20,8 @@ Check these questions where they apply:
   meaningful differences between superficially similar notes?
 - Are occurrence time, production time, freshness review, expiration,
   deprecation, and archival used for their intended purposes?
+- Does a substantive rewrite identify its current producer and production time,
+  with earlier authorship retained in repository or recovery history?
 - Will retiring an episode remove evidence still required by a durable note?
   Are indexes and replacement links updated together?
 - Do approvals and verifications refer to the exact proposed content digest?
