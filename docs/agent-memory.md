@@ -149,6 +149,11 @@ lifecycle metadata. `verified` and `memory.reviews` are excluded to
 avoid self-reference. Meaningful edits invalidate the previous confirmation.
 The whole-file SHA-256 returned by `read` separately protects mutations.
 
+Metadata must have an unambiguous JSON projection before it can be confirmed.
+For example, YAML `.inf` cannot become JSON `null` and preserve an approval.
+Such documents receive a projection diagnostic and an explicit digest marker;
+review and verification refuse them until the raw metadata is repaired.
+
 Unbound legacy verification is visible as history. It does not manufacture
 approval of the current content revision. Source approvals do not transfer to
 a summary. Rejected current revisions leave ordinary recall but stay inspectable.
@@ -175,6 +180,11 @@ remain available for excluded notes.
 The engine evaluates time on each retrieval, including cached notes. Bad date
 metadata is reported and the raw document remains accessible. Read frequency
 does not silently extend retention or count as verification.
+
+Procedural and semantic memories without `stale_after` use their production
+timestamp plus the policy's `review_interval_days` as the effective deadline.
+Lint reports the missing explicit date. Migration fills that deterministic date
+when the kind and production time are known; ambiguous dates remain unresolved.
 
 Use `task BUNDLE PATH --file TASK.json --expected HASH` to record a known task
 state. A task file can contain:
