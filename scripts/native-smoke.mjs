@@ -38,6 +38,18 @@ try {
   }
   run('skill', 'install', resolve(cwd, 'skills'));
   assert.match(await readFile(resolve(cwd, 'skills/okf/SKILL.md'), 'utf8'), /name: okf/);
+  for (const name of ['okf-librarian', 'okf-memory-reviewer']) {
+    const installed = run('skill', 'install', resolve(cwd, 'skills'), '--name', name);
+    assert.deepEqual(installed.files, ['SKILL.md', 'references/workflow.md']);
+    const skillPath = resolve(cwd, 'skills', name, 'SKILL.md');
+    assert.match(await readFile(skillPath, 'utf8'), new RegExp(`name: ${name}`));
+    assert.ok((await readFile(resolve(cwd, 'skills', name, 'references/workflow.md'), 'utf8')).length > 100);
+    await writeFile(skillPath, 'Customized skill.\n');
+    const repeat = spawnSync(executable, ['skill', 'install', resolve(cwd, 'skills'), '--name', name], { cwd, encoding: 'utf8', env: environment });
+    assert.equal(repeat.status, 2);
+    assert.equal(JSON.parse(repeat.stderr).error.code, 'SKILL_INSTALL_FAILED');
+    assert.equal(await readFile(skillPath, 'utf8'), 'Customized skill.\n');
+  }
   const port = 20000 + Math.floor(Math.random() * 30000);
   server = spawn(executable, ['serve', '--port', String(port)], { cwd, env: environment, stdio: ['ignore', 'ignore', 'pipe'] });
   const origin = `http://127.0.0.1:${port}`;
@@ -51,7 +63,7 @@ try {
   const result = await fetch(`${origin}/api/search?q=native`, { headers: { 'X-OKF-Session': capability } });
   assert.equal((await result.json()).results[0].path, 'test.md');
   assert.equal((await fetch(`${origin}/api/context`)).status, 403);
-  console.log(JSON.stringify({ version: 1, platform: process.platform, arch: process.arch, checks: ['standalone-without-node', 'help', 'invalid-arguments', 'files', 'search', 'validation', 'owned-provider-instructions', 'embedded-skill', 'embedded-viewer', 'session-authorization'], passed: true }));
+  console.log(JSON.stringify({ version: 1, platform: process.platform, arch: process.arch, checks: ['standalone-without-node', 'help', 'invalid-arguments', 'files', 'search', 'validation', 'owned-provider-instructions', 'embedded-skills', 'exclusive-skill-install', 'embedded-viewer', 'session-authorization'], passed: true }));
 } finally {
   if (server) { server.kill('SIGTERM'); await new Promise(done => { server.once('exit', done); setTimeout(done, 1000); }); }
   await rm(cwd, { recursive: true, force: true });

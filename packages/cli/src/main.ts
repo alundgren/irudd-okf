@@ -10,7 +10,7 @@ import { commands, discover } from './registry.ts';
 import { GitMemory } from './git.ts';
 import { runProcess } from './process.ts';
 import { serve } from './server.ts';
-import { installSkill } from './skill.ts';
+import { installSkill, skillNames } from './skill.ts';
 import { installInstructions, instructionStatus, removeInstructions } from './instructions.ts';
 import { checkUpgrade, upgrade } from './upgrade.ts';
 
@@ -60,7 +60,7 @@ const cliCommand = Command.make('cli').pipe(Command.withSubcommands([
   Command.make('search', { query: Argument.String('query') }, args => print({ version: 1, results: discover(args.query) })),
   Command.make('schema', { command: Argument.String('command').pipe(Argument.variadic({ min: 1 })) }, args => { const name = args.command.join(' '); const item = commands.find(value => value.command === name); return item ? print({ version: 1, ...item }) : Effect.fail(new OkfError('COMMAND_NOT_FOUND', `Unknown command ${name}. Use cli search.`)); }),
 ]));
-const skillCommand = Command.make('skill').pipe(Command.withSubcommands([Command.make('install', { directory: Argument.String('directory') }, args => installSkill(args.directory).pipe(Effect.flatMap(print)))]));
+const skillCommand = Command.make('skill').pipe(Command.withSubcommands([Command.make('install', { directory: Argument.String('directory'), name: Flag.Literals('name', skillNames).pipe(Flag.withDefault('okf')) }, args => installSkill(args.directory, args.name).pipe(Effect.flatMap(print)))]));
 const provider = Argument.Literals('provider', ['codex', 'claude']);
 const instructionsCommand = Command.make('instructions').pipe(Command.withSubcommands([
   Command.make('install', { provider, bundle: Argument.String('bundle'), dryRun: bool('dry-run') }, args => withStore(store => {

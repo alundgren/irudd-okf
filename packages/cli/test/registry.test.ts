@@ -12,5 +12,6 @@ describe('progressive command discovery', () => {
   it('registers distinct commands and schemas', () => {
     expect(new Set(commands.map(item => item.command)).size).toBe(commands.length);
     expect(commands.find(item => item.command === 'write')?.input).toMatchObject({ type: 'object', additionalProperties: false });
+    expect(commands.find(item => item.command === 'skill install')?.input).toMatchObject({ properties: { name: { default: 'okf', enum: ['okf', 'okf-librarian', 'okf-memory-reviewer'] } } });
   });
 });
