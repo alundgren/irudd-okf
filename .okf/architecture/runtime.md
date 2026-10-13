@@ -6,8 +6,9 @@ tags: [architecture, effect, okf]
 ---
 
 Core owns bundle selection, document parsing, lexical retrieval, links and file
-mutation. The CLI and local Foldkit UI call the same core APIs. Their contracts
-live in `packages/core/src/contracts.ts`.
+mutation. The CLI calls the core APIs and returns structured JSON. Scope owns
+the library UI and calls the installed CLI. File contracts live in
+`packages/core/src/contracts.ts`; Scope owns its review session and view state.
 
 Use Effect 4.0 for product operations. Generic syntax libraries are allowed;
 an OKF-specific dependency or copied reference implementation is outside scope.

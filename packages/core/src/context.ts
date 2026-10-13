@@ -1,4 +1,4 @@
-import { policyRaw } from './memory.ts';
+import { initialLibraryFiles, MANIFEST_PATH, HISTORY_PATH } from './library.ts';
 import * as fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
@@ -6,7 +6,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { OkfError, type Bundle, type MemoryContext, type Operation } from './contracts.ts';
 import { ConfigSchema, decode } from './schemas.ts';
-import { absent, operation, within, withLock, atomicReplace, atomicCreate, ensureDirectory, canonicalDirectory, normalizeSystemPath, readRaw, recovery } from './files.ts';
+import { absent, operation, within, withLock, atomicReplace, atomicCreate, ensureDirectory, canonicalDirectory, normalizeSystemPath, readRaw, recovery, scan } from './files.ts';
 
 interface Config { version: 1; bundles: Array<{ name: string; path: string; personal?: boolean }>; active: string[] }
 const globalPath = () => {
@@ -79,10 +79,11 @@ export function initializeBundle(root: string): Operation<{ root: string }> {
     await ensureDirectory(absolute);
     const bundle = await mount('new', absolute, 'explicit');
     return withLock(bundle.root, async () => {
-      for (const relative of ['index.md', 'memory-policy.md']) {
+      for (const relative of ['index.md', 'memory-policy.md', MANIFEST_PATH, HISTORY_PATH]) {
         try { await fs.lstat(path.join(bundle.root, relative)); throw new OkfError('ALREADY_EXISTS', 'Initialization never changes an existing index or canonical policy. Use migration preview for an existing bundle.', { root: absolute, path: relative }); }
         catch (error) { if (!absent(error)) throw error; }
       }
+      if ((await scan(bundle)).length) throw new OkfError('ALREADY_EXISTS', 'Use migration preview to classify existing Markdown instead of initializing a fresh library.');
       const outputs = [{ path: 'index.md', raw: `---
 okf_version: "0.2"
 ---
@@ -114,7 +115,8 @@ operator authorization.
 ## Topics
 
 Add links to topic indexes here as knowledge grows.
-` }, { path: 'memory-policy.md', raw: policyRaw() }, { path: '.gitignore', raw: '.irudd-okf/\n' }];
+` }, { path: 'memory-policy.md', raw: '---\ntype: Memory policy\nname: agent-memory\ntitle: Memory library policy\n---\n\n# Memory library policy\n\nEach memory declares a stable id, independent kind and stage, and explicit global, machine-ID or repository-ID applicability. Topics are tags. New agent memories start bronze.\n\nAgents capture add/edit/remove proposals through change propose using actual identity and reason. Pending proposals retain accepted recall. Review binds the exact proposed revision and source revisions; human-required decisions need an operator. Rejection restores accepted files and retains proposed bytes. Sync portable history and the format marker with Markdown.\n' }, { path: '.gitignore', raw: '.irudd-okf/\n' }];
+      outputs.push(...await initialLibraryFiles(path.basename(bundle.root), outputs));
       const created: Array<{path: string; raw: string}> = [];
       try {
         for (const output of outputs) {

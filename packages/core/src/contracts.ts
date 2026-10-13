@@ -13,8 +13,8 @@ export interface SearchHit extends ConceptSummary { score: number; excerpt: stri
 export interface SearchResult { version: 1; query: string; results: SearchHit[]; total: number; limit: number; offset: number; truncated: boolean }
 export interface Graph { version: 1; nodes: ConceptSummary[]; edges: Array<{ from: string; to: string; label: string; broken: boolean; external: boolean }>; truncated: boolean; limit: number }
 export interface ValidationResult { version: 1; files: number; errors: number; warnings: number; diagnostics: Diagnostic[] }
-export interface WriteRequest { bundle: string; path: string; raw: string; expectedHash: string | null; authorizePersonal?: boolean; namespace?: string }
-export interface DeleteRequest { bundle: string; path: string; expectedHash: string; authorizePersonal?: boolean }
+export interface WriteRequest { bundle: string; path: string; raw: string; expectedHash: string | null; authorizePersonal?: boolean; namespace?: string; actor?: MemoryActor; reason?: string }
+export interface DeleteRequest { bundle: string; path: string; expectedHash: string; authorizePersonal?: boolean; actor?: MemoryActor; reason?: string }
 export interface RenameRequest extends DeleteRequest { newPath: string; updateLinks?: boolean; previewHash?: string }
 export interface RenamePreview { version: 1; bundle: string; path: string; newPath: string; previewHash: string; changes: Array<{ path: string; before: string; after: string }> }
 export interface MutationResult { version: 1; bundle: string; path: string; hash: string | null; changedPaths: string[]; recoveryPath?: string }
@@ -25,6 +25,16 @@ export class OkfError extends Error {
 export type Operation<A> = Effect.Effect<A, OkfError>;
 export interface Store {
   readonly context: MemoryContext;
+  inspectChanges(bundle: string): Operation<ChangeRecoveryResult>;
+  recoverChanges(bundle: string, authorizePersonal?: boolean): Operation<ChangeRecoveryResult>;
+  inspectBundle(bundle: string): Operation<BundleInspection>;
+  migrationGuide(bundle: string): Operation<MigrationGuide>;
+  proposeChange(request: ChangeRequest): Operation<ChangeRecord>;
+  listChanges(bundle: string, status?: ChangeRecord["status"], page?: {limit?: number; offset?: number}): Operation<{ version: 1; bundle: string; changes: ChangeRecord[]; total: number; limit: number; offset: number; truncated: boolean }>;
+  readChange(bundle: string, id: string): Operation<ChangeRecord>;
+  reviewChange(request: ChangeReviewRequest): Operation<ChangeRecord>;
+  undoChange(request: ChangeUndoRequest): Operation<ChangeRecord>;
+  browse(request: BrowseRequest): Operation<BrowseResult>;
   profile(bundle: string): Operation<ProfileResult>;
   namespaces(bundle: string): Operation<NamespaceResult>;
   bootstrap(bundle: string): Operation<BootstrapResult>;
@@ -41,7 +51,7 @@ export interface Store {
   previewMigration(request: MigrationRequest): Operation<MaintenancePreview>;
   applyMigration(request: MaintenanceApplyRequest): Operation<MaintenanceResult>;
   list(bundle?: string, options?: RecallSelection): Operation<ConceptSummary[]>;
-  read(bundle: string, path: string): Operation<Concept>;
+  read(bundle: string, path: string, options?: { current?: boolean; machine?: string; repository?: string; allApplicability?: boolean }): Operation<Concept>;
   index(bundle: string, path?: string, options?: RecallSelection): Operation<Concept>;
   search(query: string, options?: SearchOptions): Operation<SearchResult>;
   graph(options?: GraphOptions): Operation<Graph>;
@@ -62,8 +72,7 @@ export type AgentProvider = 'codex' | 'claude';
 export interface InstructionStatus { version: 1; provider: AgentProvider; file: string; installed: boolean; shadowed: boolean }
 export interface InstructionResult extends InstructionStatus { changed: boolean; dryRun: boolean; instructions: string | null; recoveryPath?: string }
 
-// HTTP wire types share file semantics with the CLI. All mutations require the
-// browser session capability, and Git publication additionally requires preview.
+// CLI errors retain a stable structured envelope.
 export interface ApiError { version: 1; error: { code: string; message: string; details: Record<string, unknown> } }
 
 
@@ -83,6 +92,7 @@ export interface MemoryMetadata {
   [key: string]: unknown;
 }
 export interface MemoryProjection {
+  id?: string; applicability?: Applicability; revisionHash?: string;
   kind: MemoryKind | null; stage: MemoryStage | null; namespace: string; review: ReviewState;
   verified: boolean; humanReviewed: boolean; machineVerified: boolean; trustTier: 'unverified' | 'machine-confirmed' | 'human-reviewed'; historicalVerificationEvents: unknown[]; freshness: Freshness; archived: boolean; deprecated: boolean;
   contentHash: string; dependency: DependencyState; eligible: boolean;
@@ -97,13 +107,13 @@ export interface MemoryPolicy {
 export interface ProfileResult { version: 1; bundle: string; mode: 'generic' | 'memory' | 'invalid'; policy: MemoryPolicy | null; diagnostics: Diagnostic[] }
 export interface NamespaceResult { version: 1; bundle: string; namespaces: string[]; shared: 'shared'; mode: ProfileResult['mode'] }
 export interface BootstrapResult { version: 1; bundle: string; path: string; raw: string | null; profile: ProfileResult }
-export interface RecallSelection { namespaces?: string[]; includeExcluded?: boolean }
+export interface RecallSelection { allApplicability?: boolean; namespaces?: string[]; includeExcluded?: boolean; machine?: string; repository?: string }
 export interface SearchOptions extends RecallSelection { bundle?: string; limit?: number; offset?: number }
 export interface GraphOptions extends RecallSelection { bundle?: string; path?: string; depth?: number; limit?: number }
-export interface TemplateRequest { bundle: string; kind: MemoryKind; stage?: MemoryStage; namespace?: string; title: string; description: string; tags: string[]; actor: string; at?: string; occurredAt?: string; sources?: Array<string | { resource: string; [key: string]: unknown }>; task?: MemoryTask }
+export interface TemplateRequest { id?: string; applicability?: Applicability; bundle: string; kind: MemoryKind; stage?: MemoryStage; namespace?: string; title: string; description: string; tags: string[]; actor: string; at?: string; occurredAt?: string; sources?: Array<string | { resource: string; [key: string]: unknown }>; task?: MemoryTask }
 export interface TemplateResult { version: 1; bundle: string; raw: string }
-export interface ReviewRequest extends DeleteRequest { decision: 'approve' | 'reject'; actor: string; reason: string; at?: string; operator?: true }
-export interface VerifyRequest extends DeleteRequest { actor: string; method: string; at?: string }
+export interface ReviewRequest extends Omit<DeleteRequest, "actor"> { decision: 'approve' | 'reject'; actor: string; reason: string; at?: string; operator?: true }
+export interface VerifyRequest extends Omit<DeleteRequest, "actor"> { actor: string; method: string; at?: string }
 export interface TaskRequest extends DeleteRequest { task: MemoryTask; retentionDays?: number | null; retentionReason?: string | null }
 export interface LifecycleRequest extends DeleteRequest { action: 'archive' | 'restore' | 'expire' | 'deprecate' | 'clear-expiration' | 'recheck'; at?: string; replacement?: string; reason?: string }
 export interface AuditOptions extends RecallSelection { bundle?: string }
@@ -126,9 +136,9 @@ export interface MigrationRequest {
   bundle: string; policy?: Partial<Omit<MemoryPolicy, 'name' | 'version'>>;
   decisions?: Record<string, MigrationDecision>;
 }
-export interface StoreOptions { now?: () => Date; afterJournalWrite?: (completedPaths: number) => Promise<void> }
+export interface StoreOptions { afterChangeWrite?: (phase: 'prepared' | 'published', changeId: string) => Promise<void>; now?: () => Date; afterJournalWrite?: (completedPaths: number) => Promise<void> }
 
-export interface MigrationDecision { raw?: string; kind?: MemoryKind; stage?: MemoryStage; namespace?: string; actor?: string; at?: string; title?: string; description?: string; tags?: string[]; sources?: Array<string | { resource: string; [key: string]: unknown }>; status?: string; occurredAt?: string; task?: MemoryTask; retentionReason?: string | null; expiresAt?: string | null; staleAfter?: string | null; archivedAt?: string | null; prerequisites?: string[]; replaces?: string[]; replacedBy?: string | null; derivedFrom?: Derivation[] }
+export interface MigrationDecision { id?: string; applicability?: Applicability; raw?: string; kind?: MemoryKind; stage?: MemoryStage; namespace?: string; actor?: string; at?: string; title?: string; description?: string; tags?: string[]; sources?: Array<string | { resource: string; [key: string]: unknown }>; status?: string; occurredAt?: string; task?: MemoryTask; retentionReason?: string | null; expiresAt?: string | null; staleAfter?: string | null; archivedAt?: string | null; prerequisites?: string[]; replaces?: string[]; replacedBy?: string | null; derivedFrom?: Derivation[] }
 export interface MaintenanceInspectRequest { bundle: string; previewHash: string }
 export type JournalPathState = 'untouched' | 'applied' | 'externally-changed';
 export interface MaintenanceJournalPath { path: string; state: JournalPathState; before: string | null; after: string | null; currentHash: string | null; recoveryPath?: string }
@@ -136,3 +146,22 @@ export interface MaintenanceJournalResult { version: 1; bundle: string; previewH
 
 export interface MaintenanceRecoverRequest extends MaintenanceInspectRequest { authorizePersonal?: boolean }
 export interface MaintenanceRecoveryResult extends MaintenanceJournalResult { lockRecovered: boolean; lockRecoveryPath?: string }
+
+export const SUPPORTED_FORMAT_VERSION = 2;
+export interface MemoryActor { type: 'agent' | 'human'; id: string }
+export type Applicability = { type: 'global' } | { type: 'machine' | 'repository'; id: string };
+export interface BundleInspection { version: 1; bundle: string; root: string; name: string; id: string | null; formatVersion: number | null; cliVersion: string; supportedFormatVersion: number; status: 'current' | 'migration-required' | 'newer' | 'invalid' }
+export interface SourceRevision { applicability?: Applicability; displayTitle?: string; bundle?: string; id?: string; path: string; hash: string }
+export interface RevisionBytes { raw: string; hash: string }
+export interface ChangeProposal { version: 1; id: string; bundle: string; path: string; action: 'create' | 'update' | 'delete'; before: RevisionBytes | null; after: RevisionBytes | null; revisionHash: string; actor: MemoryActor; reason: string; createdAt: string; sources: SourceRevision[]; humanRequired: boolean; expectedHash?: string | null; requestHash?: string; requestId?: string }
+export interface ChangeReview { actor: MemoryActor; reason: string; at: string; decision: 'accept' | 'reject'; revisionHash: string; sources: SourceRevision[] }
+export interface MemoryDisplay {kind:MemoryKind|null;stage:MemoryStage|null;applicability:Applicability|null}
+export interface ChangeRecord extends ChangeProposal { display: {title:string;beforeBody:string|null;afterBody:string|null;beforeMemory:MemoryDisplay|null;afterMemory:MemoryDisplay|null}; status: 'pending' | 'accepted' | 'rejected' | 'superseded'; replacementChangeId?: string; reviews: ChangeReview[]; agentReview?: ChangeReview; humanReview?: ChangeReview; review?: ChangeReview }
+export interface ChangeRequest { bundle: string; path: string; raw: string | null; expectedHash: string | null; actor: MemoryActor; reason: string; sources?: SourceRevision[]; requestId?: string; authorizePersonal?: boolean }
+export interface ChangeReviewRequest { bundle: string; id: string; expectedRevisionHash: string; decision: 'accept' | 'reject'; actor: MemoryActor; reason: string; sources: SourceRevision[]; operator?: true; authorizePersonal?: boolean }
+export interface ChangeUndoRequest { bundle: string; id: string; expectedRevisionHash: string; actor: MemoryActor; reason: string; requestId?: string; authorizePersonal?: boolean }
+export interface BrowseRequest { allApplicability?: boolean; machine?: string; repository?: string; bundle: string; path?: string; limit?: number; offset?: number }
+export interface BrowseResult { version: 1; bundle: string; path: string; limit: number; offset: number; truncated: boolean; entries: Array<{ path: string; kind: 'directory' | 'memory'; title?: string; id?: string }> }
+export interface MigrationGuide { version: 1; inspection: BundleInspection; instructions: string[]; questions: MigrationIssue[]; requestExample: unknown }
+
+export interface ChangeRecoveryResult {version:1;bundle:string;lockRecovered:boolean;lockRecoveryPath?:string;publication:{id:string;path:string;state:'untouched'|'applied'|'externally-changed'}|null}

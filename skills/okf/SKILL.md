@@ -1,57 +1,26 @@
 ---
 name: okf
-description: Find and maintain task-relevant repository or explicitly selected personal knowledge stored as Open Knowledge Format Markdown. Use when project guidance identifies an OKF bundle, when a task needs durable project rules or decisions, or when asked to record a rule or lesson in such a bundle.
+description: Retrieve accepted task memory or propose tracked changes in an explicitly selected irudd-okf library. Use when project instructions identify a bundle or the operator asks to maintain memory.
 ---
 
-# OKF knowledge
+# Memory library
 
-Read the applicable repository instructions first. They remain the authority for
-when to consult memory and how to resolve conflicting guidance.
+Read applicable project instructions. Run `irudd-okf context` to identify selected
+bundles, then `irudd-okf bundle inspect BUNDLE` to check the format and identity.
+Choose explicit machine or repository IDs when retrieval requires them. Bundle
+aliases do not imply applicability. A local directory works without Git.
 
-1. Identify the active bundle and scope. With the optional CLI, run
-   `irudd-okf context`. Otherwise follow the bundle path in the repository
-   instructions. Do not search unrelated repositories or infer personal bundles.
-2. Read its root `index.md` and shared memory policy when present. With a memory
-   profile, use `irudd-okf bootstrap BUNDLE` before selecting namespaces. This
-   returns the shared policy or the generic root index. Namespace selection
-   always adds shared memories; a read selection never selects a write
-   destination. Without the CLI, read `memory-policy.md` and apply the same
-   conventions to file searches. Search for the current task, relevant code
-   area and likely failure cases. Retrieve a few source files; avoid loading all
-   rule titles, all skill triggers or the full corpus.
-3. Follow relevant links and inspect the actual code or documentation cited by
-   a rule. A search result is a candidate, not evidence that every relevant rule
-   has been found. Refine the query when names or task scope change.
-4. Inspect freshness, review, and evidence status when the bundle uses a memory
-   profile. A pending procedure is a proposal; an episode is evidence of a
-   particular event. Processing stage and namespace do not decide instruction
-   precedence. Follow source links and check applicability before generalizing.
-   Apply the retrieved guidance under the repository's own conventions. Keep the
-   bundle name and file path in any explanation of a rule. If conflicting rules
-   affect the task and the instructions do not resolve them, explain the conflict
-   and ask the operator. Do not invent a priority hierarchy.
-5. When asked to add a rule, or when repository instructions authorize learning,
-   record one specific, reusable lesson with enough context to act on it. Avoid
-   duplicates by searching first. Personal edits require explicit operator
-   authorization; repository edits remain ordinary files in the code review diff.
-   Before writing, read the root and relevant topic indexes and follow their
-   authoring conventions. Update an existing concept when it already covers the
-   lesson. Keep the root index short by linking topic indexes; put the new note
-   in the appropriate topic and update its index entry. Add links only where they
-   help retrieve directly related guidance. Follow the bundle's replacement
-   convention when advice changes. Check the changed links, then run scoped
-   validation and lint. Explain which memory paths changed.
+`irudd-okf cli browse` navigates command groups. Discover the required operation with `irudd-okf cli search "TASK"`, then read its
+exact inputs, outputs, examples and errors with `irudd-okf cli schema COMMAND`.
+Search a few accepted memories and read their accepted revisions. Current drafts
+and change records are review material, not task guidance. Follow cited evidence
+and project instructions when memories conflict.
 
-CLI discovery follows a short sequence:
-
-```sh
-irudd-okf cli search "find rules"
-irudd-okf cli schema search
-irudd-okf search "migration tests" --scope repo --limit 5
-irudd-okf read repo architecture/migrations.md
-```
-
-Without the CLI, use ordinary file search (`rg`) and read the relevant Markdown.
-For safe authoring, format details, and conflict examples, see
-[references/usage.md](references/usage.md). Native skills remain useful for task
-procedures; OKF stores the facts and rules those procedures may retrieve.
+Authorized agent creates start bronze. Declare stable identity, memory kind and
+explicit applicability. Add, edit and remove through tracked proposals. Supply
+actual actor identity, reason and supporting source revisions. Review decisions
+bind the exact proposal and sources. Human decisions require an operator; an
+agent may record only its own assessment. Standing installed instructions may authorize personal proposals in the selected
+current-format library. Otherwise personal edits require explicit authorization.
+For old or unknown formats, discover `migration guide` and resolve its explicit
+questions before any write. Never infer wider applicability during migration.

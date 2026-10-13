@@ -27,6 +27,13 @@ const fixture = async () => {
   }) };
 };
 describe('isolated memory PR preparation', () => {
+  it('refuses selective Markdown publication after a bundle adopts portable library history',async()=>{
+    const {root,memory}=await fixture();await writeFile(resolve(root,'.okf/rule.md'),'---\ntype: Rule\n---\nEdited\n');
+    const preview=await Effect.runPromise(memory.preview('repo',['rule.md'],'origin/main'));
+    await writeFile(resolve(root,'.okf/memory-bundle.json'),JSON.stringify({formatVersion:2,id:'library-id',name:'Library'}));
+    await expect(Effect.runPromise(memory.preview('repo',['rule.md'],'origin/main'))).rejects.toMatchObject({code:'LIBRARY_SYNC_REQUIRED'});
+    await expect(Effect.runPromise(memory.publish(preview.token,'Do not publish historyless files'))).rejects.toMatchObject({code:'LIBRARY_SYNC_REQUIRED'});
+  });
   it('rejects an existing filesystem alias resolving to an internal directory', async () => {
     const { root, memory } = await fixture();
     const internal = resolve(root, '.okf/.irudd-okf');

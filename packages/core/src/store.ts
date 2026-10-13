@@ -1,13 +1,16 @@
+import {Effect} from 'effect';
 import * as fs from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import MarkdownIt from 'markdown-it';
 import linkRule from 'markdown-it/lib/rules_inline/link.mjs';
 import referenceRule from 'markdown-it/lib/rules_block/reference.mjs';
 import { OkfError, type Bundle, type Concept, type ConceptSummary, type Diagnostic, type MemoryContext, type Store, type Operation, type WriteRequest, type DeleteRequest, type RenameRequest, type MutationResult, type RenamePreview, type RecallSelection, type StoreOptions } from './contracts.ts';
 import { operation, guarded, scan, hash, absent, cleanPath, withLock, recovery, atomicReplace, atomicCreate, readRaw } from './files.ts';
-import { decode, WriteSchema, DeleteSchema, RenameSchema, RecallSchema, SearchOptionsSchema, GraphOptionsSchema } from './schemas.ts';
+import { decode, ApplySchema, ReviewSchema, TemplateSchema, WriteSchema, DeleteSchema, RenameSchema, RecallSchema, SearchOptionsSchema, GraphOptionsSchema } from './schemas.ts';
 import { attachMemoryOperations } from './memory-operations.ts';
 import { projectDocuments, discoverProfile, assertNamespace, metadataLinks, namespaceOf, patchMetadata, rewriteMetadataLinks, dateValue, isMemoryPolicyPath } from './memory.ts';
+import { createLibrary, inspectLibrary, assertLibraryWrite, attachLibraryMigration, validLibraryNote } from './library.ts';
 import { parseConcept, reserved, resolveLink } from './parser.ts';
 
 const summary = (concept: Concept): ConceptSummary => ({ bundle: concept.bundle, path: concept.path, title: concept.title, type: concept.type, description: concept.description, tags: [...concept.tags], hash: concept.hash, malformed: concept.malformed, ...(concept.memory ? { memory: structuredClone(concept.memory) } : {}) });
@@ -147,6 +150,7 @@ export function createStore(input: MemoryContext, options: StoreOptions = {}): S
   context.bundles.forEach(Object.freeze);
   Object.freeze(context.bundles);
   Object.freeze(context);
+  const library = createLibrary(context, options);
   const cache = new Map<string, { fingerprint: string; concept: Concept }>();
   async function load(bundleName?: string, detailed = true): Promise<Concept[]> {
     const bundles = bundleName ? [select(context, bundleName)] : context.bundles;
@@ -175,7 +179,9 @@ export function createStore(input: MemoryContext, options: StoreOptions = {}): S
     }
     output.sort((a, b) => compare(id(a), id(b)));
     const clock = now();
-    const profiles = projectDocuments(output, clock);
+    const libraryBundles=new Set<string>();
+    for(const bundle of bundles)if((await inspectLibrary(bundle)).status==='current')libraryBundles.add(bundle.name);
+    const profiles = projectDocuments(output.filter(concept=>!libraryBundles.has(concept.bundle)), clock);
     for (const concept of output) if (!concept.memory && dateValue(concept.metadata.stale_after) !== null && clock.getTime() >= dateValue(concept.metadata.stale_after)!) concept.diagnostics.push({ level: 'warning', code: 'STALE', path: concept.path, bundle: concept.bundle, message: 'The concept is past stale_after.' });
     for (const concept of output) for (const item of metadataLinks(concept, profiles.get(concept.bundle)?.mode === 'memory')) {
       const link = resolveLink(concept.path, item.resource);
@@ -208,14 +214,19 @@ export function createStore(input: MemoryContext, options: StoreOptions = {}): S
     if (!concept) throw new OkfError('NOT_FOUND', 'The Markdown document does not exist.', { bundle, path: normalized });
     return concept;
   }
-  function recall(documents: Concept[], selection: RecallSelection = {}, bundleName?: string): Concept[] {
-    decode(RecallSchema, selection);
+  async function recall(documents: Concept[], selection: RecallSelection = {}, bundleName?: string): Promise<Concept[]> {
+    decode(RecallSchema, {allApplicability:selection.allApplicability,namespaces: selection.namespaces, includeExcluded: selection.includeExcluded, machine: selection.machine, repository: selection.repository});
     const bundles = bundleName ? [select(context, bundleName)] : context.bundles;
-    const profiles = bundles.map(bundle => discoverProfile(bundle.name, documents));
+    const currentBundles = new Set<string>();
+    for (const bundle of bundles) if ((await inspectLibrary(bundle)).status === 'current') {
+      currentBundles.add(bundle.name);
+      if (!selection.includeExcluded) documents = [...documents.filter(concept => concept.bundle !== bundle.name), ...await library.acceptedDocuments(bundle, selection)];
+    }
+    const profiles = bundles.filter(bundle => !currentBundles.has(bundle.name)).map(bundle => discoverProfile(bundle.name, documents));
     for (const profile of profiles) if (profile.mode === 'invalid' && (!selection.includeExcluded || selection.namespaces?.length)) throw new OkfError('INVALID_MEMORY_POLICY', 'Repair the canonical policy before profile-dependent recall.', { diagnostics: profile.diagnostics });
     const registered = new Set(['shared', ...profiles.flatMap(profile => profile.policy?.namespaces ?? [])]);
     for (const namespace of selection.namespaces ?? []) if (!registered.has(namespace)) throw new OkfError('UNKNOWN_NAMESPACE', 'Namespace is not registered in any selected bundle.', { namespace });
-    return documents.filter(concept => (!concept.memory || selection.includeExcluded || concept.memory.eligible) && (!selection.namespaces?.length || (concept.memory?.namespace ?? 'shared') === 'shared' || selection.namespaces.includes(concept.memory?.namespace ?? 'shared')));
+    return documents.filter(concept => (!currentBundles.has(concept.bundle) || !isMemoryPolicyPath(concept.path)) && (currentBundles.has(concept.bundle) || !concept.memory || selection.includeExcluded || concept.memory.eligible) && (!selection.namespaces?.length || (concept.memory?.namespace ?? 'shared') === 'shared' || selection.namespaces.includes(concept.memory?.namespace ?? 'shared')));
   }
   const store = {
     context,
@@ -233,14 +244,20 @@ export function createStore(input: MemoryContext, options: StoreOptions = {}): S
       }
       return (await renamePlan(bundle.name, oldPath, newPath, original, request.updateLinks)).preview;
     }),
-    list: (bundle?: string, selection: RecallSelection = {}) => operation(async () => recall(await load(bundle, false), selection, bundle).filter(concept => !reserved(concept.path)).map(summary)),
-    read: (bundle, file) => operation(() => read(bundle, file)),
+    list: (bundle?: string, selection: RecallSelection = {}) => operation(async () => (await recall(await load(bundle, false), selection, bundle)).filter(concept => !reserved(concept.path)).map(summary)),
+    read: (bundle, file, readOptions = {}) => operation(async () => {
+      const selected = select(context, bundle);
+      if (readOptions.current || (await inspectLibrary(selected)).status !== 'current') return read(bundle, file);
+      const concept = (await library.acceptedDocuments(selected, { includeExcluded: true, allApplicability:readOptions.allApplicability,machine:readOptions.machine,repository:readOptions.repository })).find(item => item.path === cleanPath(file));
+      if (!concept) throw new OkfError('NOT_ACCEPTED', 'This path has no accepted revision matching the selected applicability. Supply explicit context or use --all-applicability for accepted catalog inspection; change read and --current inspect proposals.');
+      return concept;
+    }),
     index: (bundle: string, directory = '', selection: RecallSelection = {}) => operation(async () => {
       const normalized = directory ? cleanPath(directory).replace(/\/$/, '') : '';
       const file = normalized.endsWith('.md') ? normalized : normalized ? normalized + '/index.md' : 'index.md';
       const documents = await load(bundle);
-      const authored = documents.find(concept => concept.path === file);
-      const eligible = recall(documents, selection, bundle);
+      const eligible = await recall(documents, selection, bundle);
+      const authored = eligible.find(concept => concept.path === file);
       if (authored && !selection.namespaces?.length && documents.every(concept => reserved(concept.path) || eligible.includes(concept))) return authored;
       const folder = path.posix.dirname(file);
       const prefix = folder === '.' ? '' : folder + '/';
@@ -260,7 +277,7 @@ export function createStore(input: MemoryContext, options: StoreOptions = {}): S
       }
       if (terms.length + filters.length > 32) throw new OkfError('QUERY_LIMIT', 'Search queries are limited to 32 terms and filters.');
       const results = [];
-      for (const concept of recall(await load(options.bundle, false), { namespaces: options.namespaces, includeExcluded: options.includeExcluded }, options.bundle).filter(concept => !reserved(concept.path))) {
+      for (const concept of (await recall(await load(options.bundle, false), options, options.bundle)).filter(concept => !reserved(concept.path))) {
         if (!filters.every(filter => filter.key === 'bundle' ? concept.bundle.toLowerCase() === filter.value : filter.key === 'type' ? concept.type?.toLowerCase() === filter.value : filter.key === 'tag' ? concept.tags.some(tag => tag.toLowerCase() === filter.value) : filter.key === 'exact' ? concept.title.toLowerCase() === filter.value || concept.path.toLowerCase() === filter.value : concept.path.toLowerCase().includes(filter.value))) continue;
         const fields = [{ name: 'title', text: concept.title, weight: 12 }, { name: 'path', text: concept.path, weight: 8 }, { name: 'tags', text: concept.tags.join(' '), weight: 10 }, { name: 'description', text: concept.description, weight: 6 }, { name: 'type', text: concept.type ?? '', weight: 4 }, { name: 'body', text: concept.body, weight: 1 }].map(field => ({ ...field, text: field.text.toLowerCase() }));
         let score = 0;
@@ -278,7 +295,7 @@ export function createStore(input: MemoryContext, options: StoreOptions = {}): S
     }),
     graph: (options: import('./contracts.ts').GraphOptions = {}) => operation(async () => {
       decode(GraphOptionsSchema, options);
-      const documents = recall(await load(options.bundle), { namespaces: options.namespaces, includeExcluded: options.includeExcluded }, options.bundle).filter(concept => !reserved(concept.path));
+      const documents = (await recall(await load(options.bundle), options, options.bundle)).filter(concept => !reserved(concept.path));
       const limit = bounded(options.limit, 80, 250);
       const depth = Number.isFinite(options.depth) ? Math.max(0, Math.min(3, Math.floor(options.depth!))) : 1;
       const all = new Map(documents.map(concept => [id(concept), concept]));
@@ -310,8 +327,11 @@ export function createStore(input: MemoryContext, options: StoreOptions = {}): S
     }),
     validate: (options: {bundle?: string; lint?: boolean} = {}) => operation(async () => {
       const documents = await load(options.bundle, options.lint);
+      const libraryBundles=new Set<string>();
+      for(const bundle of context.bundles)if((await inspectLibrary(bundle)).status==='current')libraryBundles.add(bundle.name);
       const diagnostics = documents.flatMap(concept => [ ...concept.diagnostics.filter(diagnostic => options.lint || diagnostic.level === 'error'), ...(options.lint ? concept.links.filter(link => link.broken).map(link => ({ level: 'warning' as const, code: 'BROKEN_LINK', path: concept.path, bundle: concept.bundle, message: `Unavailable link target: ${link.target}` })) : []) ]);
-      if (options.lint) diagnostics.push(...unindexedConcepts(documents), ...documents.flatMap(concept => concept.memory?.diagnostics ?? []), ...context.bundles.filter(bundle => !options.bundle || bundle.name === options.bundle).flatMap(bundle => discoverProfile(bundle.name, documents).diagnostics), ...documents.filter(concept => !isMemoryPolicyPath(concept.path) && concept.metadata.memory_policy !== undefined).map(concept => ({ level: 'warning' as const, code: 'EXTRA_MEMORY_POLICY', bundle: concept.bundle, path: concept.path, message: 'Only root memory-policy.md activates the memory profile.' })));
+      for(const concept of documents)if(libraryBundles.has(concept.bundle))try{validLibraryNote(concept.bundle,concept.path,concept.raw);}catch(error){diagnostics.push({level:'error',code:error instanceof OkfError?error.code:'INVALID_MEMORY',path:concept.path,bundle:concept.bundle,message:error instanceof Error?error.message:String(error)});}
+      if (options.lint) diagnostics.push(...unindexedConcepts(documents), ...documents.flatMap(concept => concept.memory?.diagnostics ?? []), ...context.bundles.filter(bundle => (!options.bundle || bundle.name === options.bundle) && !libraryBundles.has(bundle.name)).flatMap(bundle => discoverProfile(bundle.name, documents).diagnostics), ...documents.filter(concept => !isMemoryPolicyPath(concept.path) && concept.metadata.memory_policy !== undefined).map(concept => ({ level: 'warning' as const, code: 'EXTRA_MEMORY_POLICY', bundle: concept.bundle, path: concept.path, message: 'Only root memory-policy.md activates the memory profile.' })));
       return { version: 1, files: documents.length, errors: diagnostics.filter(item => item.level === 'error').length, warnings: diagnostics.filter(item => item.level === 'warning').length, diagnostics };
     }),
     save: (request: WriteRequest) => operation(() => save(decode(WriteSchema, request))),
@@ -322,6 +342,12 @@ export function createStore(input: MemoryContext, options: StoreOptions = {}): S
   async function save(request: WriteRequest): Promise<MutationResult> {
     const bundle = select(context, request.bundle);
     writable(bundle, request);
+    if (await assertLibraryWrite(bundle)) {
+      if (!request.actor || !request.reason) throw new OkfError('ACTOR_REQUIRED', 'New-format writes require an explicit actor and reason. Use change propose.');
+      if(request.namespace!==undefined)throw new OkfError('APPLICABILITY_CONTEXT_REQUIRED','Library destinations declare explicit applicability in memory metadata; namespaces are legacy only.');
+      const change = await library.propose({bundle:request.bundle,path:request.path,raw:request.raw,expectedHash:request.expectedHash,actor:request.actor,reason:request.reason,authorizePersonal:request.authorizePersonal});
+      return {version: 1, bundle: bundle.name, path: change.path, hash: change.after?.hash ?? null, changedPaths: [change.path]};
+    }
     const documents = await load(bundle.name, false);
     const profile = discoverProfile(bundle.name, documents);
     if (!reserved(request.path) && !isMemoryPolicyPath(request.path) && (profile.mode === 'memory' || request.namespace !== undefined)) {
@@ -350,6 +376,11 @@ export function createStore(input: MemoryContext, options: StoreOptions = {}): S
   async function remove(request: DeleteRequest): Promise<MutationResult> {
     const bundle = select(context, request.bundle);
     writable(bundle, request);
+    if (await assertLibraryWrite(bundle)) {
+      if (!request.actor || !request.reason) throw new OkfError('ACTOR_REQUIRED', 'New-format removals require an explicit actor and reason. Use change propose.');
+      const change = await library.propose({ ...request, raw: null, actor: request.actor, reason: request.reason });
+      return {version: 1, bundle: bundle.name, path: change.path, hash: null, changedPaths: [change.path]};
+    }
     if (isMemoryPolicyPath(cleanPath(request.path))) throw new OkfError('MEMORY_POLICY_PROTECTED', 'The canonical memory policy cannot be deleted through structured operations. Repair its raw contents in place.');
     const concept = await read(bundle.name, request.path);
     const profile = discoverProfile(bundle.name, await load(bundle.name));
@@ -378,6 +409,7 @@ export function createStore(input: MemoryContext, options: StoreOptions = {}): S
   async function rename(request: RenameRequest): Promise<MutationResult> {
     const bundle = select(context, request.bundle);
     writable(bundle, request);
+    if (await assertLibraryWrite(bundle)) throw new OkfError('CHANGE_REQUIRED', 'Rename new-format memory through explicit removal and creation proposals.');
     const oldPath = cleanPath(request.path);
     const newPath = cleanPath(request.newPath);
     if (isMemoryPolicyPath(oldPath) || isMemoryPolicyPath(newPath)) throw new OkfError('MEMORY_POLICY_PROTECTED', 'The canonical memory policy cannot be moved through structured operations. Repair its raw contents in place.');
@@ -421,5 +453,41 @@ export function createStore(input: MemoryContext, options: StoreOptions = {}): S
       return { version: 1, bundle: bundle.name, path: newPath, hash: hash(newRaw), changedPaths: [oldPath, newPath, ...updates.map(update => update.concept.path)], recoveryPath };
     });
   }
+  const oldTemplate = store.template;
+  store.template = request => operation(async () => {
+    request = decode(TemplateSchema, request);
+    const bundle = select(context, request.bundle);
+    if ((await inspectLibrary(bundle)).status !== 'current') return Effect.runPromise(oldTemplate(request));
+    if (!request.applicability) throw new OkfError('APPLICABILITY_REQUIRED', 'New-format templates require explicit applicability.');
+    const raw = `---\ntype: Memory\ntitle: ${JSON.stringify(request.title)}\ndescription: ${JSON.stringify(request.description)}\ntags: ${JSON.stringify(request.tags)}\nsources: ${JSON.stringify(request.sources ?? [])}\ngenerated: ${JSON.stringify({by:request.actor,at:request.at ?? now().toISOString()})}\nmemory:\n  id: ${JSON.stringify(request.id ?? randomUUID())}\n  kind: ${request.kind}\n  stage: ${request.stage ?? 'bronze'}\n  applicability: ${JSON.stringify(request.applicability)}\n---\n\nWrite one useful memory with enough context to apply it.\n`;
+    return {version: 1, bundle: bundle.name, raw};
+  });
+  const oldProfile=store.profile,oldBootstrap=store.bootstrap,oldNamespaces=store.namespaces;
+  store.profile=bundle=>operation(async()=> (await inspectLibrary(select(context,bundle))).status==='current'?{version:1,bundle,mode:'memory',policy:null,diagnostics:[]}:Effect.runPromise(oldProfile(bundle)));
+  store.bootstrap=bundle=>operation(async()=>{
+    if((await inspectLibrary(select(context,bundle))).status!=='current')return Effect.runPromise(oldBootstrap(bundle));
+    const concept=await Effect.runPromise(store.read(bundle,'memory-policy.md'));
+    return {version:1,bundle,path:concept.path,raw:concept.raw,profile:await Effect.runPromise(store.profile(bundle))};
+  });
+  store.namespaces=bundle=>operation(async()=>{
+    if((await inspectLibrary(select(context,bundle))).status==='current')throw new OkfError('APPLICABILITY_CONTEXT_REQUIRED','Use explicit --machine or --repository identity; topics are tags and bundle aliases do not define applicability.');
+    return Effect.runPromise(oldNamespaces(bundle));
+  });
+  Object.assign(store, library.methods);
+  attachLibraryMigration(store, context, options);
+  const oldReview = store.review;
+  store.review = request => operation(async () => {
+    request = decode(ReviewSchema, request);
+    const bundle = select(context, request.bundle);
+    if (!await assertLibraryWrite(bundle)) return Effect.runPromise(oldReview(request));
+    throw new OkfError('CHANGE_REQUIRED', 'Review exact library proposals with change review; raw review metadata cannot approve library memory.');
+  });
+  const oldMaintenance = store.applyMaintenance;
+  store.applyMaintenance = request => operation(async () => {
+    request = decode(ApplySchema, request);
+    const bundle = select(context, request.preview.bundle);
+    if (await assertLibraryWrite(bundle)) throw new OkfError('CHANGE_REQUIRED', 'New-format maintenance uses change proposals and independent revision reviews.');
+    return Effect.runPromise(oldMaintenance(request));
+  });
   return store;
 }

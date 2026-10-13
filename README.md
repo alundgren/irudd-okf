@@ -3,18 +3,12 @@
 Local, scoped knowledge for coding agents and the people working with them.
 Store small rules, decisions and lessons as ordinary Open Knowledge Format
 Markdown. Search a few relevant files instead of loading the entire corpus.
-The CLI is optional: an editor, `rg` and Git work with the same files.
+The CLI manages revisions and review. An editor and `rg` can inspect the same
+portable files; external edits enter review before ordinary recall changes.
 
-```mermaid
-flowchart LR
-  P["Personal bundle<br/>explicitly selected"] --> C["Shared file engine"]
-  R["Current repository<br/>.okf directory"] --> C
-  C --> A["Agent CLI<br/>search → read"]
-  C --> W["Local wiki<br/>read and edit"]
-  C --> G["Local graph<br/>bounded linked concepts"]
-  W --> D["Ordinary Git diff"]
-  D --> PR["Optional reviewed PR<br/>isolated worktree"]
-```
+The CLI reads and updates portable memory files. Scope provides the Librarian
+library and review queue. Agents discover operations through command search and
+schemas rather than loading a command catalogue into their skill.
 
 Bundles stay separate. Each result identifies its bundle and path. There is
 no implicit search of sibling repositories, embeddings service or encoded
@@ -48,7 +42,7 @@ Vite+ if needed, and builds the CLI locally. It installs into `~/.local/bin`
 and adds that directory to your bash or zsh login profile. Git and curl are
 required. Open a new terminal after installing.
 
-The executable includes its Node runtime, wiki, graph, and agent skill.
+The executable includes its Node runtime and agent skills.
 Run `irudd-okf licenses` to read the included runtime and dependency notices.
 
 ## Release packages
@@ -78,13 +72,13 @@ From your project's directory:
 irudd-okf init .okf
 irudd-okf context
 irudd-okf search "test artifacts" --scope repo --limit 5
-irudd-okf serve
+irudd-okf cli search "review pending memory changes"
 ```
 
-Open the printed `/wiki` or `/graph` address. The server binds to
-`127.0.0.1`, and stops with Ctrl+C. Wiki edits compare the version you read
-with the file currently on disk. On a conflict, the draft remains available
-for comparison and copying. Malformed documents remain accessible as raw text.
+Command output is JSON. Use `cli search` to find an operation, then `cli schema`
+to inspect its arguments, request file and result contract before running it.
+The CLI runs without a browser, server or model service. Scope supplies the
+human library and calls the same installed CLI.
 
 Set `OKF_INSTALL_ROOT` to change where the installer keeps its clone, or
 `OKF_INSTALL_DIR` to change the executable's location. The installer records
@@ -114,8 +108,9 @@ uninstall. On Windows, also remove the installation directory from your user PAT
 
 ## Files and agent discovery
 
-A concept needs YAML frontmatter with a nonempty `type`. Other fields and
-unknown types are preserved. `index.md` and `log.md` are reserved at every
+A concept needs YAML frontmatter with a nonempty `type`. Library memories also
+need a stable ID, memory kind, stage and explicit applicability. Other fields and
+unknown types are preserved during repair and migration. `index.md` and `log.md` are reserved at every
 level. The implementation targets OKF v0.2 independently and uses no
 OKF-specific dependency.
 
@@ -123,7 +118,14 @@ OKF-specific dependency.
 ---
 type: Rule
 title: Clean test artifacts
-tags: [tests]
+tags: [testing]
+memory:
+  id: clean-test-artifacts
+  kind: procedural
+  stage: bronze
+  applicability:
+    type: repository
+    id: example-project
 ---
 
 Remove generated test artifacts before committing. Check `git status` after
@@ -147,7 +149,7 @@ irudd-okf skill install .agents/skills
 ```
 
 Command results are JSON. Diagnostics go to stderr. The small
-[agent skill](skills/okf/SKILL.md) also explains the file-only workflow.
+[agent skill](skills/okf/SKILL.md) explains command discovery and accepted recall.
 Native skills remain useful for task procedures. Nothing injects the entire
 memory corpus or all its triggers into the agent's context.
 
@@ -179,8 +181,8 @@ irudd-okf search "editor preferences" --scope me
 Use `--bundle NAME=ROOT` to select an explicit invocation scope. Repository
 configuration cannot silently activate folders outside its Git root. Runtime
 registrations are separate from the OKF format, and files are never physically
-merged. Personal writes through the CLI require `--authorize-personal`; a
-person's deliberate wiki edit supplies that authorization.
+merged. Personal writes through the CLI require `--authorize-personal`. Scope supplies
+that authorization for a deliberate memory edit.
 
 ## Machine-wide agent instructions
 
@@ -238,59 +240,73 @@ The authoring checklist and navigation lint help maintain files and links.
 They do not guarantee that an agent will follow every instruction or organize
 notes well.
 
-## Agent memory profiles
+## Library memory
 
-New bundles include a shared memory policy. It defines namespaces, topic tags,
-and lifetime defaults. Existing bundles stay readable and adopt the profile
-through an explicit migration preview. Read the policy before selecting
-namespaces:
+Memory classification has separate fields for kind, applicability, curation
+stage, and review. Kind is procedural, episodic, or semantic. Applicability is
+global, a particular machine, or a particular repository. A repository ID is
+independent of its checkout path. Topics remain tags.
 
-```sh
-irudd-okf bootstrap repo
-irudd-okf namespaces repo
-irudd-okf search "migration failures" --scope repo --namespace payments --namespace platform
-irudd-okf audit --scope repo
-```
+Agent-created memories start bronze and pending review. Silver contains
+normalized, attributable knowledge; gold contains curated guidance with checked
+evidence and limits. Promotion does not grant human approval or widen
+applicability.
 
-Each note has one namespace. Repeated read selections include their union plus
-shared memory. Writes without a destination are shared. Keep memory kind
-`procedural`, `episodic`, or `semantic` separate from processing stage `bronze`,
-`silver`, or `gold`, authorship, review, and lifetime.
+Pending edits and removals preserve the last accepted revision for ordinary
+recall. The change commands expose the exact proposal, supporting sources,
+review decisions and recovery history. Routine librarian decisions record an
+agent reviewer. Changes requiring human judgment remain pending. A derived
+procedure or fact retains source revisions and receives its own review.
 
-The CLI and wiki support templates, source revision tracking, verification,
-approval and rejection, task retention, expiration, archival, maintenance
-proposals, migration, and protected recovery. Approvals apply to the reviewed
-content revision. Expired notes leave normal recall but remain inspectable;
-their historical evidence does not disappear just because time passes.
-
-Install the portable personas for your existing scheduled agent runner:
+Ask your existing coding agent to run a dreaming loop. Scope's permanent
+Librarian tab shows the human review queue and completed overview. Conversation
+stays in your agent session. No model service or memory maintenance process runs
+by default. Scope reminds you weekly to initiate the loop. The reminder is on
+by default and can be disabled in Scope Settings.
 
 ```sh
+irudd-okf bundle inspect repo
+irudd-okf cli search "review a pending memory change"
+irudd-okf cli schema change review
 irudd-okf skill install /path/to/agent-skills --name okf-librarian
-irudd-okf skill install /path/to/agent-skills --name okf-memory-reviewer
 ```
 
-The librarian can audit, propose changes, or apply authorized maintenance. The
-reviewer assesses claims against their evidence and current revisions. Neither
-processing stage nor an agent check manufactures human approval.
+The installed command schema describes current request files and results.
+Read the [memory guide](docs/agent-memory.md) for authoring, review, evidence,
+applicability and recovery.
 
-See the [complete memory guide](docs/agent-memory.md) for metadata, authoring,
-review, lifecycle, migration, recovery, and scheduling. After building, run the
-[synthetic example](examples/agent-memory/demo.mjs) in a temporary bundle:
+## Bundle format versions
+
+A portable `memory-bundle.json` identifies the library bundle and its format.
+The format version is separate from the executable's software version. Before
+using a bundle, agents inspect its format and the installed CLI's support.
 
 ```sh
-node examples/agent-memory/demo.mjs build/irudd-okf
+irudd-okf bundle inspect repo
+irudd-okf migration guide repo
 ```
 
-Add a destination argument outside the repository to retain the example bundle.
+The CLI supplies migration instructions for its installed version. Prepare a
+preview, resolve unknown classifications and applicability with the person
+using the library, then apply the agreed changes. Migration retains original
+bytes and recovery state and updates the format marker after completion.
+An unversioned bundle needs migration; a newer bundle needs a compatible CLI.
+Upgrading the executable does not silently migrate memory files.
 
-## Review memory edits as a PR
+## Optional Git publication
 
-When a bundle is in Git, the wiki shows changed memory paths. Select files,
-prepare a diff, inspect its exact repository and target branch, then submit it.
-This uses your installed `git` and authenticated `gh`. The current branch,
-index, and unrelated code changes stay untouched. Git hooks and commit signing
-are disabled for the isolated memory commit.
+Local bundles require no Git repository or remote. When synchronizing a library,
+include its Markdown, `memory-bundle.json`, and `memory-history.json` together.
+The manifest and history are canonical library data; leaving them out loses
+accepted revisions and review evidence on the receiving machine. Runtime locks
+and recovery files in `.irudd-okf/` stay local.
+
+The selective `git preview` and `git pr` commands support generic OKF bundles.
+They refuse current-format libraries because publishing selected Markdown alone
+cannot preserve the complete library state. Use full portable-bundle sync for a
+library, or review the complete bundle alongside your repository changes.
+
+For a generic OKF bundle in Git:
 
 ```sh
 irudd-okf git status repo
@@ -299,23 +315,15 @@ irudd-okf git pr PREVIEW_TOKEN --title "Record test cleanup rule"
 ```
 
 Fetch the intended base first. A changed source file or target branch requires
-fresh preview. Failed publication retains its token and isolated worktree;
-retry with the same token after correcting the Git or GitHub error. Preview
-state is local under `$XDG_STATE_HOME/irudd-okf` or
-`~/.local/state/irudd-okf`. PR submission is always an explicit action.
-
-If termination leaves a short acquisition claim, the error includes its exact
-directory, owner PID and age. Confirm that owner has stopped before removing
-only the reported `.lock.recovery` directory. Keep the primary lock, journal and
-worktree, then retry the same token. Missing ownership requires inspecting the
-claim age and ensuring no publication process remains; unknown owners are never
-automatically deleted.
+a fresh preview. Failed publication retains its token and isolated worktree;
+retry the same token after resolving the reported error. Preview state remains
+local under `$XDG_STATE_HOME/irudd-okf` or `~/.local/state/irudd-okf`.
 
 ## Development
 
-The product uses Effect 4.0, Foldkit 0.165 and Vite+ 1.0. Node 26.10 is the
-build runtime. Generic YAML and Markdown libraries handle syntax; own code
-implements OKF semantics.
+The product uses Effect 4.0 and Vite+ 1.0. Node 26.10 is the build runtime.
+Generic YAML and Markdown libraries handle syntax; own code implements OKF
+semantics.
 
 ```sh
 npm ci
@@ -331,13 +339,7 @@ It tests the PowerShell installer, user PATH, source upgrades, and replacement
 of the running executable. Windows 11 desktop execution is not a separate CI job.
 All native jobs extract their release archive and repeat the standalone smoke
 checks. A pushed `v*` tag publishes all five packages and `SHA256SUMS` only
-after native and browser validation succeeds.
-Browser validation exercises the served wiki and graph. Run it with:
+after native validation succeeds.
 
-```sh
-node scripts/browser-smoke.mjs
-```
-
-Browser smoke outputs use a temporary directory and are removed after the run.
-Set `OKF_BROWSER_ARTIFACTS` to an output directory outside the repository when
-you need to retain screenshots and results. CI retains these as workflow artifacts.
+Native validation exercises the CLI and its embedded skills without Node on
+PATH. Library journeys and agent review sessions are validated in irudd-scope.

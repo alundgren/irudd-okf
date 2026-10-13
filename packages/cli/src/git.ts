@@ -5,6 +5,7 @@ import { homedir, tmpdir } from 'node:os';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { OkfError, type GitPreview, type GitStatus, type MemoryContext, type Operation, type PullRequestResult } from '../../core/src/contracts.ts';
 import { cleanPath, normalizeSystemPath } from '../../core/src/files.ts';
+import {inspectLibrary} from '../../core/src/library.ts';
 import { checkedProcess, runProcess } from './process.ts';
 
 const call = (command: string, args: string[], cwd: string) => Effect.runPromise(checkedProcess(command, args, cwd));
@@ -75,7 +76,7 @@ export class GitMemory {
         const status = value.slice(0, 2); const sourcePath = value.slice(3);
         const paths = [sourcePath]; if (/[RC]/.test(status)) paths.push(entries[++i]);
         for (const full of paths) {
-          if (!full?.endsWith('.md')) continue;
+          if (!full || !full.endsWith('.md') && !full.endsWith('/memory-history.json') && !full.endsWith('/memory-bundle.json') && !['memory-history.json','memory-bundle.json'].includes(full)) continue;
           const local = prefix ? full.startsWith(`${prefix}/`) ? full.slice(prefix.length + 1) : null : full;
           if (local && !internalPath(local)) files.push({ path: local, status: status.trim() });
         }
@@ -87,6 +88,7 @@ export class GitMemory {
   preview(name: string, paths: string[], base?: string): Operation<GitPreview> {
     return safeOperation(async () => {
       const { bundle, root } = await this.bundle(name);
+      if((await inspectLibrary(bundle)).status!=='migration-required')throw new OkfError('LIBRARY_SYNC_REQUIRED','Versioned libraries require full-bundle sync including memory-history.json and memory-bundle.json; selective Markdown PR publication is unavailable.');
       if (paths.length < 1 || paths.length > 250) throw new OkfError('INVALID_INPUT', 'Select 1–250 memory files.');
       const remote = await git(root, 'remote', 'get-url', 'origin');
       const repository = githubRepository(remote);
@@ -183,11 +185,13 @@ export class GitMemory {
   private async checkCommit(job: Job) {
     if (!job.commit || await git(job.worktree, 'rev-parse', 'HEAD') !== job.commit || await git(job.worktree, 'rev-parse', `${job.commit}^`) !== job.base || await git(job.worktree, 'diff', '--binary', job.base, job.commit, '--') !== job.diff || await git(job.worktree, 'status', '--porcelain') !== '') throw new OkfError('EDIT_CONFLICT', 'The retained worktree changed after its reviewed commit. Prepare a new preview.');
   }
-  publish(token: string, title: string, body = 'Memory edits reviewed in the local OKF wiki.'): Operation<PullRequestResult> {
+  publish(token: string, title: string, body = 'Memory edits reviewed before publication.'): Operation<PullRequestResult> {
     return safeOperation(async () => {
       if (!/^[0-9a-f-]{36}$/.test(token) || !title.trim() || title.length > 200) throw new OkfError('INVALID_INPUT', 'A valid preview token and a title of 1–200 characters are required.');
       let job: Job; try { job = JSON.parse(await readFile(resolve(this.directory, `${token}.json`), 'utf8')) as Job; } catch { throw new OkfError('PREVIEW_NOT_FOUND', 'Preview not found. Prepare a new diff.'); }
       if (!this.context.bundles.some(bundle => bundle.name === job.bundle && bundle.root === job.bundleRoot)) throw new OkfError('SCOPE_CHANGED', 'This preview belongs to a bundle outside the current scope.');
+      const activeBundle=this.context.bundles.find(bundle=>bundle.name===job.bundle && bundle.root===job.bundleRoot)!;
+      if((await inspectLibrary(activeBundle)).status!=='migration-required')throw new OkfError('LIBRARY_SYNC_REQUIRED','Sync the complete versioned library, including history and format marker.');
       const lock = await this.acquireLock(token);
       try {
         if (job.url) return { version: 1, url: job.url, branch: job.branch, worktree: job.worktree, state: 'existing' };

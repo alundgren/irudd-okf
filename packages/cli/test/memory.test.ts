@@ -6,11 +6,12 @@ import { fileURLToPath } from 'node:url';
 import { parseDocument } from 'yaml';
 import { describe, expect, it } from 'vite-plus/test';
 import { Effect } from 'effect';
+import {policyRaw} from '../../core/src/memory.ts';
 import { createStore } from '../../core/src/index.ts';
 
 const main = fileURLToPath(new URL('../src/main.ts', import.meta.url));
 const loader = import.meta.resolve('tsx');
-async function fixture() {
+async function fixture(library=false) {
   const cwd = await realpath(await mkdtemp(join(tmpdir(), 'okf-memory-cli-')));
   const root = join(cwd, '.okf');
   const execute = (...args: string[]) => spawnSync(process.execPath, ['--import', loader, main, ...args], { cwd, encoding: 'utf8', env: { ...process.env, TSX_DISABLE_CACHE: '1', NODE_NO_WARNINGS: '1', XDG_CONFIG_HOME: join(cwd, 'config'), XDG_STATE_HOME: join(cwd, 'state') }, timeout: 60000 });
@@ -22,15 +23,28 @@ async function fixture() {
   };
   const json = async (name: string, value: unknown) => { const file = join(cwd, name); await writeFile(file, JSON.stringify(value)); return file; };
   run('init');
-  const policy = parseDocument(await readFile(join(root, 'memory-policy.md'), 'utf8').then(raw => raw.split('---')[1]));
+  if(!library)await import('node:fs/promises').then(fs => fs.unlink(join(root, 'memory-bundle.json')));
+  const policy = parseDocument(policyRaw().split('---')[1]);
   policy.setIn(['memory_policy', 'namespaces'], ['shared', 'payments', 'platform']);
-  await writeFile(join(root, 'memory-policy.md'), `---\n${policy.toString()}---\n\n# Memory policy\n`);
+  if(!library)await writeFile(join(root, 'memory-policy.md'), `---\n${policy.toString()}---\n\n# Memory policy\n`);
   const store = createStore({ version: 1, cwd, gitRoot: null, configPath: join(cwd, 'config/config.json'), bundles: [{ name: 'repo', root, kind: 'explicit', writable: true }] });
   const read = (path: string) => Effect.runPromise(store.read('repo', path));
   return { cwd, root, run, execute, json, read };
 }
 
 describe('complete memory CLI workflows', () => {
+  it('authors current-format memory through discovered templates and keeps generated proposals pending',async()=>{
+    const f=await fixture(true);try {
+      const request=await f.json('template.json',{kind:'semantic',title:'Discovered authoring',description:'A recorded task outcome.',tags:['tests'],actor:'agent:cli',applicability:{type:'global'}});
+      const template=f.run('template','repo','--file',request);expect(template.raw).toContain('stage: bronze');expect(template.raw).toContain('applicability:');
+      const candidate=await f.json('candidate.json',{path:'note.md',raw:template.raw,expectedHash:null,actor:{type:'agent',id:'actual-session'},reason:'Observed the task outcome.'});
+      const change=f.run('change','propose','repo','--file',candidate);expect(change.status).toBe('pending');expect(change.display.afterMemory.applicability).toEqual({type:'global'});
+      expect(f.run('cli','browse','change').entries.some((item:{command:string})=>item.command==='change review')).toBe(true);
+      const decision=await f.json('review.json',{expectedRevisionHash:change.revisionHash,decision:'accept',actor:{type:'human',id:'operator'},operator:true,reason:'Checked task evidence.',sources:change.sources});
+      f.run('change','review','repo',change.id,'--file',decision);expect(f.run('read','repo','note.md').raw).toBe(template.raw);
+    }finally{await rm(f.cwd,{recursive:true,force:true});}
+  },60000);
+
   it('forwards namespace union, explicit review, verification, task retention and lifecycle operations to core', async () => {
     const f = await fixture();
     try {
@@ -94,15 +108,15 @@ describe('complete memory CLI workflows', () => {
       expect(f.run('maintenance', 'recover', 'repo', preview.previewHash).lockRecovered).toBe(false);
       const legacy = join(f.cwd, 'legacy');
       await import('node:fs/promises').then(fs => fs.mkdir(legacy));
-      await writeFile(join(legacy, 'index.md'), '---\nokf_version: "0.2"\n---\n[Legacy](legacy.md)\n');
+      await writeFile(join(legacy, 'index.md'), '---\nokf_version: "0.2"\n---\n# Knowledge\n[Legacy](legacy.md)\n');
       await writeFile(join(legacy, 'legacy.md'), '---\ntype: Fact\ncustom: preserved\n---\nExisting evidence.\n');
-      const migration = await f.json('migration.json', { decisions: { 'legacy.md': { kind: 'semantic', stage: 'silver', actor: 'agent:migrator', at: '2026-01-01T00:00:00.000Z', title: 'Legacy knowledge', description: 'Migrated evidence.', tags: ['testing'], sources: ['https://example.invalid/evidence'], status: 'stable' } } });
+      const migration = await f.json('migration.json', { decisions: { 'legacy.md': { id: 'legacy-id', applicability: {type:'global'}, kind: 'semantic', stage: 'silver', actor: 'agent:migrator', at: '2026-01-01T00:00:00.000Z', title: 'Legacy knowledge', description: 'Migrated evidence.', tags: ['testing'], sources: ['https://example.invalid/evidence'], status: 'stable' } } });
       const migrated = f.run('--bundle', `legacy=${legacy}`, 'migration', 'preview', 'legacy', '--file', migration);
       expect(migrated.unresolved).toEqual([]);
       const migrationFile = await f.json('migration-preview.json', migrated);
       expect(f.run('--bundle', `legacy=${legacy}`, 'migration', 'apply', '--file', migrationFile).state).toBe('applied');
       expect(f.run('--bundle', `legacy=${legacy}`, 'migration', 'apply', '--file', migrationFile).state).toBe('unchanged');
-      expect(f.run('--bundle', `legacy=${legacy}`, 'read', 'legacy', 'legacy.md').metadata.custom).toBe('preserved');
+      expect(f.run('--bundle', `legacy=${legacy}`, 'read', 'legacy', 'legacy.md', '--current').metadata.custom).toBe('preserved');
       const malformed = await f.json('invalid.json', { kind: 'semantic', tags: 42 });
       const rejected = f.execute('template', 'repo', '--file', malformed);
       expect(rejected.status).toBe(2);

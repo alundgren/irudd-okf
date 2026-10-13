@@ -6,26 +6,25 @@ import { resolve } from 'node:path';
 import { getAsset, isSea } from 'node:sea';
 import { createStore, initializeBundle, registerBundle, resolveContext, unregisterBundle } from '../../core/src/index.ts';
 import { OkfError, VERSION, type Store } from '../../core/src/contracts.ts';
-import { commands, discover } from './registry.ts';
+import { commands, discover, navigate } from './registry.ts';
 import { GitMemory } from './git.ts';
 import { runProcess } from './process.ts';
-import { serve } from './server.ts';
 import { installSkill, skillNames } from './skill.ts';
 import { installInstructions, instructionStatus, removeInstructions } from './instructions.ts';
 import { checkUpgrade, upgrade } from './upgrade.ts';
 import { bindFields, readJson } from './input.ts';
-import { decode, MigrationSchema, PreviewSchema, ProposalSchema, TaskRequestSchema, TemplateSchema } from '../../core/src/schemas.ts';
+import { decode, ChangeSchema, ChangeReviewSchema, ChangeUndoSchema, MigrationSchema, PreviewSchema, ProposalSchema, TaskRequestSchema, TemplateSchema } from '../../core/src/schemas.ts';
 
 const bool = (name: string) => Flag.Boolean(name).pipe(Flag.withDefault(false));
 const opt = (name: string) => Flag.String(name).pipe(Flag.optional);
 const print = (value: unknown) => Console.log(JSON.stringify(value));
 const scope = opt('scope');
-const recallFlags = { namespace: Flag.String('namespace').pipe(Flag.between(0, 100)), includeExcluded: bool('include-excluded') };
-const selection = (args: { namespace: readonly string[]; includeExcluded: boolean }) => ({ namespaces: args.namespace.length ? [...args.namespace] : undefined, includeExcluded: args.includeExcluded });
+const recallFlags = { allApplicability:bool('all-applicability'), machine: opt('machine'), repository: opt('repository'), namespace: Flag.String('namespace').pipe(Flag.between(0, 100)), includeExcluded: bool('include-excluded') };
+const selection = (args: { namespace: readonly string[]; includeExcluded: boolean; allApplicability:boolean; machine: Option.Option<string>; repository: Option.Option<string> }) => ({ allApplicability:args.allApplicability, machine: Option.getOrUndefined(args.machine), repository: Option.getOrUndefined(args.repository), namespaces: args.namespace.length ? [...args.namespace] : undefined, includeExcluded: args.includeExcluded });
 const root = Command.make('irudd-okf').pipe(Command.withSharedFlags({
   config: opt('config'),
   bundle: Flag.String('bundle').pipe(Flag.between(0, 100)),
-}), Command.withDescription('Scoped OKF memory in ordinary files. CLI output is JSON; wiki and graph run locally.'));
+}), Command.withDescription('Scoped OKF memory in ordinary files. CLI output is JSON; accepted memory retrieval and revision proposals.'));
 const withStore = <A, E, R>(f: (store: Store) => Effect.Effect<A, E, R>) => Effect.gen(function* () {
   const args = yield* root;
   const explicitBundles = args.bundle.length ? args.bundle.map(value => {
@@ -39,19 +38,20 @@ const withStore = <A, E, R>(f: (store: Store) => Effect.Effect<A, E, R>) => Effe
 const contextCommand = Command.make('context', {}, () => withStore(store => print(store.context)));
 const initCommand = Command.make('init', { root: Argument.String('root').pipe(Argument.withDefault('.okf')) }, args => initializeBundle(resolve(args.root)).pipe(Effect.flatMap(print)));
 const bundleCommand = Command.make('bundle').pipe(Command.withSubcommands([
+  Command.make('inspect', { bundle: Argument.String('bundle') }, args => withStore(store => store.inspectBundle(args.bundle).pipe(Effect.flatMap(print)))),
   Command.make('list', {}, () => withStore(store => print(store.context))),
   Command.make('add', { name: Argument.String('name'), root: Argument.String('root'), activate: bool('activate') }, args => Effect.gen(function* () { const flags = yield* root; yield* registerBundle(args.name, resolve(args.root), { configPath: Option.getOrUndefined(flags.config), activate: args.activate, personal: true }).pipe(Effect.flatMap(print)); })),
   Command.make('remove', { name: Argument.String('name') }, args => Effect.gen(function* () { const flags = yield* root; yield* unregisterBundle(args.name, { configPath: Option.getOrUndefined(flags.config) }).pipe(Effect.flatMap(print)); })),
 ]));
 const searchCommand = Command.make('search', { query: Argument.String('query'), scope, ...recallFlags, limit: Flag.Int('limit').pipe(Flag.withDefault(10)), offset: Flag.Int('offset').pipe(Flag.withDefault(0)) }, args => withStore(store => store.search(args.query, { bundle: Option.getOrUndefined(args.scope), ...selection(args), limit: args.limit, offset: args.offset }).pipe(Effect.flatMap(print))));
 const listCommand = Command.make('list', { scope, ...recallFlags }, args => withStore(store => store.list(Option.getOrUndefined(args.scope), selection(args)).pipe(Effect.flatMap(concepts => print({ version: 1, concepts })))));
-const readCommand = Command.make('read', { bundle: Argument.String('bundle'), path: Argument.String('path') }, args => withStore(store => store.read(args.bundle, args.path).pipe(Effect.flatMap(print))));
+const readCommand = Command.make('read', {allApplicability:bool('all-applicability'),machine:opt('machine'),repository:opt('repository'), bundle: Argument.String('bundle'), path: Argument.String('path'), current: bool('current') }, args => withStore(store => store.read(args.bundle, args.path, { current: args.current, allApplicability:args.allApplicability,machine:Option.getOrUndefined(args.machine),repository:Option.getOrUndefined(args.repository) }).pipe(Effect.flatMap(print))));
 const indexCommand = Command.make('index', { bundle: Argument.String('bundle'), path: Argument.String('path').pipe(Argument.optional), ...recallFlags }, args => withStore(store => store.index(args.bundle, Option.getOrUndefined(args.path), selection(args)).pipe(Effect.flatMap(print))));
-const writeCommand = Command.make('write', { bundle: Argument.String('bundle'), path: Argument.String('path'), file: Flag.String('file'), expected: Flag.String('expected'), namespace: Flag.String('namespace').pipe(Flag.between(0, 1)), authorizePersonal: bool('authorize-personal') }, args => withStore(store => Effect.gen(function* () {
+const writeCommand = Command.make('write', { actor:opt('actor'), actorType:Flag.Literals('actor-type',['agent','human']).pipe(Flag.withDefault('agent')), reason:opt('reason'), bundle: Argument.String('bundle'), path: Argument.String('path'), file: Flag.String('file'), expected: Flag.String('expected'), namespace: Flag.String('namespace').pipe(Flag.between(0, 1)), authorizePersonal: bool('authorize-personal') }, args => withStore(store => Effect.gen(function* () {
   const raw = yield* Effect.tryPromise({ try: () => readFile(resolve(args.file), 'utf8'), catch: error => new OkfError('FILE_READ_FAILED', `Could not read ${args.file}.`, { cause: String(error) }) });
-  yield* store.save({ bundle: args.bundle, path: args.path, raw, expectedHash: args.expected === 'new' ? null : args.expected, namespace: args.namespace[0], authorizePersonal: args.authorizePersonal }).pipe(Effect.flatMap(print));
+  yield* store.save({ bundle: args.bundle, path: args.path, raw, ...(Option.isSome(args.actor)?{actor:{type:args.actorType,id:args.actor.value}}:{}), reason:Option.getOrUndefined(args.reason), expectedHash: args.expected === 'new' ? null : args.expected, namespace: args.namespace[0], authorizePersonal: args.authorizePersonal }).pipe(Effect.flatMap(print));
 })));
-const deleteCommand = Command.make('delete', { bundle: Argument.String('bundle'), path: Argument.String('path'), expected: Flag.String('expected'), authorizePersonal: bool('authorize-personal') }, args => withStore(store => store.remove({ bundle: args.bundle, path: args.path, expectedHash: args.expected, authorizePersonal: args.authorizePersonal }).pipe(Effect.flatMap(print))));
+const deleteCommand = Command.make('delete', { actor:opt('actor'), actorType:Flag.Literals('actor-type',['agent','human']).pipe(Flag.withDefault('agent')), reason:opt('reason'), bundle: Argument.String('bundle'), path: Argument.String('path'), expected: Flag.String('expected'), authorizePersonal: bool('authorize-personal') }, args => withStore(store => store.remove({ bundle: args.bundle, path: args.path, ...(Option.isSome(args.actor)?{actor:{type:args.actorType,id:args.actor.value}}:{}), reason:Option.getOrUndefined(args.reason), expectedHash: args.expected, authorizePersonal: args.authorizePersonal }).pipe(Effect.flatMap(print))));
 const renameCommand = Command.make('rename', { bundle: Argument.String('bundle'), path: Argument.String('path'), newPath: Argument.String('new-path'), expected: Flag.String('expected'), updateLinks: bool('update-links'), authorizePersonal: bool('authorize-personal') }, args => withStore(store => store.rename({ bundle: args.bundle, path: args.path, newPath: args.newPath, expectedHash: args.expected, updateLinks: args.updateLinks, authorizePersonal: args.authorizePersonal }).pipe(Effect.flatMap(print))));
 const validateCommand = (lint: boolean) => Command.make(lint ? 'lint' : 'validate', { scope }, args => withStore(store => Effect.gen(function* () { const result = yield* store.validate({ bundle: Option.getOrUndefined(args.scope), lint }); yield* print(result); if (result.errors) process.exitCode = 3; })));
 const graphCommand = Command.make('graph', { scope, ...recallFlags, path: opt('path'), depth: Flag.Int('depth').pipe(Flag.withDefault(1)), limit: Flag.Int('limit').pipe(Flag.withDefault(80)) }, args => withStore(store => store.graph({ bundle: Option.getOrUndefined(args.scope), ...selection(args), path: Option.getOrUndefined(args.path), depth: args.depth, limit: args.limit }).pipe(Effect.flatMap(print))));
@@ -73,7 +73,7 @@ const taskCommand = Command.make('task', { ...observedFlags, file: Flag.String('
 const lifecycleCommand = Command.make('lifecycle', { ...observedFlags, action: Flag.Literals('action', ['archive', 'restore', 'expire', 'deprecate', 'clear-expiration', 'recheck']), at: opt('at'), replacement: opt('replacement'), reason: opt('reason') }, args => withStore(store => store.lifecycle({ ...observed(args), action: args.action, at: Option.getOrUndefined(args.at), replacement: Option.getOrUndefined(args.replacement), reason: Option.getOrUndefined(args.reason) }).pipe(Effect.flatMap(print))));
 const auditCommand = Command.make('audit', { scope, namespace: recallFlags.namespace }, args => withStore(store => store.audit({ bundle: Option.getOrUndefined(args.scope), namespaces: args.namespace.length ? [...args.namespace] : undefined }).pipe(Effect.flatMap(print))));
 const applyCommand = (migration: boolean) => Command.make('apply', { file: Flag.String('file'), authorizePersonal: bool('authorize-personal') }, args => withStore(store => Effect.gen(function* () {
-  const preview = decode(PreviewSchema, yield* readJson(args.file));
+  const preview = decode(PreviewSchema, yield* readJson(args.file, migration ? 64_000_000 : 2_000_000));
   yield* (migration ? store.applyMigration : store.applyMaintenance)({ preview, authorizePersonal: args.authorizePersonal }).pipe(Effect.flatMap(print));
 })));
 const maintenanceCommand = Command.make('maintenance').pipe(Command.withSubcommands([
@@ -83,19 +83,39 @@ const maintenanceCommand = Command.make('maintenance').pipe(Command.withSubcomma
   applyCommand(false),
 ]));
 const migrationCommand = Command.make('migration').pipe(Command.withSubcommands([
+  Command.make('guide', { bundle: Argument.String('bundle') }, args => withStore(store => store.migrationGuide(args.bundle).pipe(Effect.flatMap(print)))),
   Command.make('preview', { bundle: Argument.String('bundle'), file: opt('file') }, args => withStore(store => Effect.gen(function* () {
-    const data = Option.isSome(args.file) ? yield* readJson(args.file.value) : {};
+    const data = Option.isSome(args.file) ? yield* readJson(args.file.value, 64_000_000) : {};
     yield* store.previewMigration(decode(MigrationSchema, bindFields(data, { bundle: args.bundle }))).pipe(Effect.flatMap(print));
   }))),
   applyCommand(true),
 ]));
-const serveCommand = Command.make('serve', { port: Flag.Int('port').pipe(Flag.withDefault(3210)) }, args => withStore(store => serve(store, args.port)));
+const changeCommand = Command.make('change').pipe(Command.withSubcommands([
+  Command.make('inspect', {bundle:Argument.String('bundle')},args=>withStore(store=>store.inspectChanges(args.bundle).pipe(Effect.flatMap(print)))),
+  Command.make('recover', {bundle:Argument.String('bundle'),authorizePersonal:bool('authorize-personal')},args=>withStore(store=>store.recoverChanges(args.bundle,args.authorizePersonal).pipe(Effect.flatMap(print)))),
+  Command.make('propose', { bundle: Argument.String('bundle'), file: Flag.String('file'), authorizePersonal: bool('authorize-personal') }, args => withStore(store => Effect.gen(function* () {
+    const data = yield* readJson(args.file);
+    yield* store.proposeChange(decode(ChangeSchema, bindFields(data, {bundle: args.bundle, authorizePersonal: args.authorizePersonal}))).pipe(Effect.flatMap(print));
+  }))),
+  Command.make('list', { bundle: Argument.String('bundle'), status: Flag.Literals('status', ['pending','accepted','rejected','superseded']).pipe(Flag.optional), limit: Flag.Int('limit').pipe(Flag.withDefault(30)), offset: Flag.Int('offset').pipe(Flag.withDefault(0)) }, args => withStore(store => store.listChanges(args.bundle, Option.getOrUndefined(args.status), {limit: args.limit, offset: args.offset}).pipe(Effect.flatMap(print)))),
+  Command.make('read', { bundle: Argument.String('bundle'), id: Argument.String('id') }, args => withStore(store => store.readChange(args.bundle, args.id).pipe(Effect.flatMap(print)))),
+  Command.make('review', { bundle: Argument.String('bundle'), id: Argument.String('id'), file: Flag.String('file'), authorizePersonal: bool('authorize-personal') }, args => withStore(store => Effect.gen(function* () {
+    const data = yield* readJson(args.file);
+    yield* store.reviewChange(decode(ChangeReviewSchema, bindFields(data, {bundle: args.bundle, id: args.id, authorizePersonal: args.authorizePersonal}))).pipe(Effect.flatMap(print));
+  }))),
+  Command.make('undo', { bundle: Argument.String('bundle'), id: Argument.String('id'), file: Flag.String('file'), authorizePersonal: bool('authorize-personal') }, args => withStore(store => Effect.gen(function* () {
+    const data = yield* readJson(args.file);
+    yield* store.undoChange(decode(ChangeUndoSchema, bindFields(data, {bundle: args.bundle, id: args.id, authorizePersonal: args.authorizePersonal}))).pipe(Effect.flatMap(print));
+  }))),
+]));
+const browseCommand = Command.make('browse', { allApplicability:bool('all-applicability'), bundle: Argument.String('bundle'), path: opt('path'), limit: Flag.Int('limit').pipe(Flag.withDefault(30)), offset: Flag.Int('offset').pipe(Flag.withDefault(0)), machine: opt('machine'), repository: opt('repository') }, args => withStore(store => store.browse({allApplicability:args.allApplicability,bundle: args.bundle, path: Option.getOrUndefined(args.path), limit: args.limit, offset: args.offset, machine: Option.getOrUndefined(args.machine), repository: Option.getOrUndefined(args.repository)}).pipe(Effect.flatMap(print))));
 const gitCommand = Command.make('git').pipe(Command.withSubcommands([
   Command.make('status', { bundle: Argument.String('bundle') }, args => withStore(store => new GitMemory(store.context).status(args.bundle).pipe(Effect.flatMap(print)))),
   Command.make('preview', { bundle: Argument.String('bundle'), paths: Flag.String('paths'), base: opt('base') }, args => withStore(store => new GitMemory(store.context).preview(args.bundle, args.paths.split(','), Option.getOrUndefined(args.base)).pipe(Effect.flatMap(print)))),
   Command.make('pr', { token: Argument.String('token'), title: Flag.String('title'), body: opt('body') }, args => withStore(store => new GitMemory(store.context).publish(args.token, args.title, Option.getOrUndefined(args.body)).pipe(Effect.flatMap(print)))),
 ]));
 const cliCommand = Command.make('cli').pipe(Command.withSubcommands([
+  Command.make('browse',{command:Argument.String('command').pipe(Argument.variadic({min:0})),limit:Flag.Int('limit').pipe(Flag.withDefault(30)),offset:Flag.Int('offset').pipe(Flag.withDefault(0))},args=>print(navigate(args.command.join(' '),args.limit,args.offset))),
   Command.make('search', { query: Argument.String('query') }, args => print({ version: 1, results: discover(args.query) })),
   Command.make('schema', { command: Argument.String('command').pipe(Argument.variadic({ min: 1 })) }, args => { const name = args.command.join(' '); const item = commands.find(value => value.command === name); return item ? print({ version: 1, ...item }) : Effect.fail(new OkfError('COMMAND_NOT_FOUND', `Unknown command ${name}. Use cli search.`)); }),
 ]));
@@ -116,7 +136,7 @@ const doctorCommand = Command.make('doctor', {}, () => withStore(store => Effect
   const gh = yield* runProcess('gh', ['--version'], store.context.cwd).pipe(Effect.catch(() => Effect.succeed(null)));
   yield* print({ version: 1, productVersion: VERSION, node: process.version, nativeExecutable: isSea(), context: store.context, git: git?.exitCode === 0, gh: gh?.exitCode === 0, validation: yield* store.validate() });
 })));
-export const app = root.pipe(Command.withSubcommands([contextCommand, initCommand, bundleCommand, searchCommand, listCommand, readCommand, indexCommand, writeCommand, deleteCommand, renameCommand, validateCommand(false), validateCommand(true), graphCommand, profileCommand, namespacesCommand, bootstrapCommand, templateCommand, reviewCommand, verifyCommand, taskCommand, lifecycleCommand, auditCommand, maintenanceCommand, migrationCommand, serveCommand, gitCommand, cliCommand, skillCommand, instructionsCommand, upgradeCommand, licensesCommand, doctorCommand]));
+export const app = root.pipe(Command.withSubcommands([contextCommand, initCommand, bundleCommand, searchCommand, listCommand, readCommand, indexCommand, writeCommand, deleteCommand, renameCommand, validateCommand(false), validateCommand(true), graphCommand, profileCommand, namespacesCommand, bootstrapCommand, templateCommand, reviewCommand, verifyCommand, taskCommand, lifecycleCommand, auditCommand, maintenanceCommand, migrationCommand, changeCommand, browseCommand, gitCommand, cliCommand, skillCommand, instructionsCommand, upgradeCommand, licensesCommand, doctorCommand]));
 export const renderError = (error: unknown) => Effect.sync(() => {
   if (CliError.isCliError(error) && error._tag === 'ShowHelp') {
     if (error.errors.length === 0) return;
