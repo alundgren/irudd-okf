@@ -1,9 +1,7 @@
 name: Product validation
 on:
   push:
-    branches: [main, okf/product-integration]
     tags: ['v*']
-  pull_request:
   workflow_dispatch:
 permissions:
   contents: read
