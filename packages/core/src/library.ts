@@ -248,6 +248,8 @@ export function createLibrary(context: MemoryContext, options: StoreOptions = {}
       const before = await current(bundle, file);
       if ((before === null ? null : hash(before)) !== request.expectedHash) throw new OkfError('CONFLICT', 'The proposed file revision changed.', { expectedHash: request.expectedHash, actualHash: before === null ? null : hash(before) });
       const latest = history.proposals.findLast(item => item.path === file);
+      // A newer proposal would supersede these, and only the latest proposal can be reviewed, so a person would never see them.
+      if (request.actor.type === 'agent' && latest?.humanRequired && view(history, latest).status === 'pending' && (latest.actor.type === 'human' || ['external-edit','migration'].includes(latest.actor.id))) throw new OkfError('HUMAN_DECISION_PENDING', 'A person must first decide the pending outside edit, migration or human proposal for this file. Present that change instead.', { changeId: latest.id });
       const pendingRemoval = before === null && latest?.after === null && view(history, latest).status === 'pending' && !!acceptedByPath.get(file)?.after;
       if (request.raw === null && before === null && !pendingRemoval) throw new OkfError('NOT_FOUND', 'Cannot remove an absent memory.');
       if (request.raw !== null) {
@@ -274,9 +276,7 @@ export function createLibrary(context: MemoryContext, options: StoreOptions = {}
       const consolidated = request.raw === null && await consolidatedDelete(bundle, history, file, baseline);
       const sourceLoss = !consolidated && (baselineProposal && !await keepsSources(bundle, file, baselineProposal.sources, sources) || priorSources.length>afterSources.length);
       proposal.humanRequired = request.raw === null ? !consolidated : proposal.humanRequired;
-      // An outside edit, a migration or a person's own proposal has not been seen by a person yet; a newer agent proposal must not hide it.
-      const unseen = !!latest && latest.humanRequired && view(history, latest).status === 'pending' && (latest.actor.type === 'human' || ['external-edit','migration'].includes(latest.actor.id));
-      if (sourceWidening || lastHuman?.decision==='reject' || sourceLoss || unseen) proposal.humanRequired=true;
+      if (sourceWidening || lastHuman?.decision==='reject' || sourceLoss) proposal.humanRequired=true;
       proposal.revisionHash=proposalDigest(proposal);
       // Publication intent is durable before Markdown changes, so a retry completes the same proposal.
       history.proposals.push(proposal); history.publication = { id: proposal.id, expectedHash: request.expectedHash }; await persist(bundle, history);

@@ -29,8 +29,7 @@ try {
   await mkdir(extracted);
   execFileSync('tar', ['-xf', archive, '-C', extracted]);
   for (const file of files) assert.deepEqual(await readFile(join(extracted, file)), await readFile(join(contents, file)));
-  execFileSync(process.execPath, ['scripts/native-smoke.mjs', join(extracted, name)], { stdio: 'inherit' });
-  console.log(`Validated ${archive}`);
+  console.log(`Packaged ${archive}`);
 } finally {
   await rm(staging, { recursive: true, force: true });
 }

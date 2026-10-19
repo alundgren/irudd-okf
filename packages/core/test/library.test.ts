@@ -281,12 +281,15 @@ describe('routine librarian work', () => {
     const summary=await f.propose('summary.md',raw('summary','Summary of the fact.'),null,{sources:[pin(fact)]});await f.review(summary);
     const edited=raw('fact','A reviewed fact. A note only the person added.');
     await fs.writeFile(path.join(f.bundle,'fact.md'),edited);
-    const removal=await f.propose('fact.md',null,hash(edited));
-    expect(removal.humanRequired).toBe(true);await expect(f.review(removal)).rejects.toMatchObject({code:'HUMAN_REVIEW_REQUIRED'});
+    for (let attempt=0;attempt<2;attempt++) await expect(f.propose('fact.md',null,hash(edited))).rejects.toMatchObject({code:'HUMAN_DECISION_PENDING'});
+    const outside=(await run(f.store.listChanges('memory','pending'))).changes.find(item=>item.path==='fact.md')!;
+    expect(outside.after?.raw).toBe(edited);
     const procedure=await accepted(f,'procedure.md',raw('procedure','Run the checked command.','procedural'));
     const changed=raw('procedure','Run the checked command twice.','procedural');
     await fs.writeFile(path.join(f.bundle,'procedure.md'),changed);
-    expect((await f.propose('procedure.md',procedure.after!.raw,hash(changed))).humanRequired).toBe(true);
+    await expect(f.propose('procedure.md',procedure.after!.raw,hash(changed))).rejects.toMatchObject({code:'HUMAN_DECISION_PENDING'});
+    await f.review(outside,'accept',true);
+    const removal=await f.propose('fact.md',null,hash(edited));expect(removal.humanRequired).toBe(true);
   });
   it('rechecks a routine removal at review and lets a pending removal be proposed again under current rules', async () => {
     const f=await fixture();

@@ -17,8 +17,10 @@ for the next run instead of rereading the whole bundle.
 
 Proposals left pending by an earlier run keep the review requirement recorded
 when they were made. Propose the same bytes again so core records a fresh
-proposal with the current rules; the old one becomes superseded. Outside edits
-and migrations stay with the person.
+proposal with the current rules; the old one becomes superseded. Outside edits,
+migrations and a person's own proposals stay with the person: core refuses
+agent proposals for those files with `HUMAN_DECISION_PENDING`, so present the
+pending change for a human decision instead.
 
 ## Look for work
 

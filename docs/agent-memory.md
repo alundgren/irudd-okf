@@ -67,8 +67,9 @@ decision:
   archive, expiry or deprecation. Stage, `stale_after`, sources and
   `derived_from` are not part of the procedure text.
 - Applicability changes, external edits and malformed files. While an external
-  edit, a migration or a person's own proposal is pending for a file, every
-  newer proposal for that file needs a human too.
+  edit, a migration or a person's own proposal is pending for a file, agent
+  proposals for that file fail with `HUMAN_DECISION_PENDING`; present the
+  pending change instead.
 - Updates that leave out an earlier source or depend on a corrected source.
   A source that only changed stage or lifecycle dates still counts as kept.
 - Removals, unless the memory is a fact or episode whose exact accepted revision
