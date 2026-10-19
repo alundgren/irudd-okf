@@ -254,8 +254,11 @@ applicability.
 
 Pending edits and removals preserve the last accepted revision for ordinary
 recall. The change commands expose the exact proposal, supporting sources,
-review decisions and recovery history. Routine librarian decisions record an
-agent reviewer. Changes requiring human judgment remain pending. A derived
+review decisions and recovery history. Routine librarian work, such as
+consolidating episodes, merging duplicates, adding evidence, promoting stage and
+archiving, records an agent reviewer. Changes to procedure steps or
+applicability, lost evidence and removals of memories no retained memory cites
+remain pending for a human. A derived
 procedure or fact retains source revisions and receives its own review.
 
 Ask your existing coding agent to run a dreaming loop. Scope's permanent

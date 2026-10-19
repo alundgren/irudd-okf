@@ -217,3 +217,70 @@ describe('explicit format migration', () => {
     expect((await run(f.store.applyMigration({preview}))).state).toBe('unchanged');
   });
 });
+
+describe('routine librarian work', () => {
+  const stage = (text: string, value: string) => patchMetadata(text, [{path:['memory','stage'],value}]);
+  const archived = (text: string) => patchMetadata(text, [{path:['memory','archived_at'],value:'2026-10-01T00:00:00Z'}]);
+  const pin = (change: ChangeRecord) => ({path:change.path,hash:change.after!.hash});
+  async function accepted(f: Awaited<ReturnType<typeof fixture>>, file: string, content: string, asHuman = true) {
+    const change=await f.propose(file,content);await f.review(change,'accept',asHuman);return change;
+  }
+  it('lets an agent finish a mixed pile of human-accepted memories and leaves only the procedure rewrite for a person', async () => {
+    const f=await fixture();
+    const first=await accepted(f,'episodes/first.md',raw('first','The build failed until the cache was cleared.','episodic'));
+    const second=await accepted(f,'episodes/second.md',raw('second','Clearing the cache fixed the build again.','episodic'));
+    const kept=await accepted(f,'facts/cache.md',raw('cache','Stale caches break the build.'));
+    const duplicate=await accepted(f,'facts/cache-copy.md',raw('cache-copy','The build breaks on a stale cache.'));
+    const procedure=await accepted(f,'procedures/build.md',raw('build','Clear the cache, then run the build.','procedural'));
+    const stale=await accepted(f,'facts/old.md',raw('old','The old build server is in use.'));
+
+    const fact=await f.propose('facts/cache-fix.md',raw('cache-fix','Clearing the cache fixes stale-cache build failures.'),null,{sources:[pin(first),pin(second)]});
+    expect(fact.humanRequired).toBe(false);await f.review(fact);
+    for (const episode of [first,second]) {const removal=await f.propose(episode.path,null,episode.after!.hash);expect(removal.humanRequired).toBe(false);await f.review(removal);}
+
+    const merged=await f.propose(kept.path,raw('cache','Stale caches break the build. Clearing them restores it.'),kept.after!.hash,{sources:[pin(duplicate)]});
+    expect(merged.humanRequired).toBe(false);await f.review(merged);
+    const copyRemoval=await f.propose(duplicate.path,null,duplicate.after!.hash);expect(copyRemoval.humanRequired).toBe(false);await f.review(copyRemoval);
+
+    const howto=await f.propose('procedures/cache.md',raw('cache-steps','Delete the cache folder before rebuilding.','procedural'),null,{sources:[pin(fact)]});await f.review(howto);
+    const promotedFact=await f.propose(fact.path,stage(fact.after!.raw,'silver'),fact.after!.hash,{sources:fact.sources});expect(promotedFact.humanRequired).toBe(false);await f.review(promotedFact);
+    expect((await run(f.store.search('cache folder'))).results.map(item=>item.path)).toContain('procedures/cache.md');
+    const evidence=await f.propose('procedures/cache.md',raw('cache-steps','Delete the cache folder before rebuilding.','procedural'),howto.after!.hash,{sources:[pin(promotedFact),pin(merged)]});
+    expect(evidence.humanRequired).toBe(false);await f.review(evidence);
+
+    const promotedProcedure=await f.propose(procedure.path,stage(procedure.after!.raw,'silver'),procedure.after!.hash);expect(promotedProcedure.humanRequired).toBe(false);await f.review(promotedProcedure);
+    const archive=await f.propose(stale.path,archived(stale.after!.raw),stale.after!.hash);expect(archive.humanRequired).toBe(false);await f.review(archive);
+    expect((await run(f.store.search('old build server'))).results.map(item=>item.path)).not.toContain(stale.path);
+
+    const rewrite=await f.propose(procedure.path,stage(raw('build','Run the build with a fresh cache directory.','procedural'),'silver'),promotedProcedure.after!.hash);
+    expect(rewrite.humanRequired).toBe(true);await expect(f.review(rewrite)).rejects.toMatchObject({code:'HUMAN_REVIEW_REQUIRED'});
+    expect((await run(f.store.listChanges('memory','pending'))).changes.map(item=>item.id)).toEqual([rewrite.id]);
+    expect((await run(f.store.read('memory',procedure.path))).raw).toContain('Clear the cache, then run the build.');
+  });
+  it('keeps removals of procedures and uncited memories, narrowing removals and retired procedures with a person', async () => {
+    const f=await fixture();
+    const procedure=await accepted(f,'procedure.md',raw('procedure','Run the checked command.','procedural'));
+    const note=await accepted(f,'note.md',raw('note','A global fact.'));
+    const citesProcedure=await f.propose('summary.md',raw('summary','Summary of the checked command.'),null,{sources:[pin(procedure)]});await f.review(citesProcedure);
+    expect((await f.propose(procedure.path,null,procedure.after!.hash)).humanRequired).toBe(true);
+    const narrower=await f.propose('local.md',raw('local','Repository copy of the fact.','semantic',{type:'repository',id:'repo-a'}),null,{sources:[pin(note)]});await f.review(narrower,'accept',true);
+    expect((await f.propose(note.path,null,note.after!.hash)).humanRequired).toBe(true);
+
+    const retired=await accepted(f,'retired.md',archived(raw('retired','Use the old deploy script.','procedural')));
+    const restored=await f.propose(retired.path,raw('retired','Use the old deploy script.','procedural'),retired.after!.hash);
+    expect(restored.humanRequired).toBe(true);
+    const kind=await accepted(f,'kind.md',raw('kind','Run tests before pushing.'));
+    expect((await f.propose(kind.path,raw('kind','Run tests before pushing.','procedural'),kind.after!.hash)).humanRequired).toBe(true);
+  });
+  it('rechecks a routine removal at review and lets a pending removal be proposed again under current rules', async () => {
+    const f=await fixture();
+    const episode=await accepted(f,'episode.md',raw('episode','The deploy needed a retry.','episodic'));
+    const early=await f.propose(episode.path,null,episode.after!.hash);expect(early.humanRequired).toBe(true);
+    const summary=await f.propose('summary.md',raw('summary','Deploys can need a retry.'),null,{sources:[pin(episode)]});await f.review(summary);
+    const again=await f.propose(episode.path,null,null);
+    expect(again.humanRequired).toBe(false);expect((await run(f.store.readChange('memory',early.id))).status).toBe('superseded');
+    const retire=await f.propose(summary.path,archived(summary.after!.raw),summary.after!.hash,{sources:summary.sources});await f.review(retire);
+    await expect(f.review(again)).rejects.toMatchObject({code:'HUMAN_REVIEW_REQUIRED'});
+    await f.review(again,'accept',true);
+  });
+});

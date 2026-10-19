@@ -25,9 +25,11 @@ and retains its proposed revision. Undo creates a pending restoration.
 Reviews bind an exact proposal and all accepted supporting source revisions.
 Pending source drafts retain accepted evidence. Accepted source corrections require
 fresh review of dependents. Historical evidence remains in immutable history after
-removal. Human decisions remain distinct and agents cannot override them. Existing
-procedural changes, applicability changes, external mutations and removals require
-a deliberate operator decision.
+removal. Human decisions remain distinct and agents cannot override them. Changes
+to procedure text, applicability changes, external mutations, lost evidence and
+removals of memories no retained memory cites require a deliberate operator
+decision. Stage, archive and evidence bookkeeping stay routine so a librarian can
+curate without asking about every file; docs/agent-memory.md lists the rules.
 
 Migration preserves original bytes, requires explicit classification/applicability
 and uses the protected journal. Validate candidates again during apply and publish
