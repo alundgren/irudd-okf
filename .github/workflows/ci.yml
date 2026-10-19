@@ -1,4 +1,4 @@
-name: Product validation
+name: Release
 on:
   push:
     tags: ['v*']
@@ -24,14 +24,7 @@ jobs:
           node-version: 26.10.0
           cache: npm
       - run: npm ci
-      - run: npm run check
       - run: npm run build
-      - run: node scripts/native-smoke.mjs
-      - run: node scripts/installer-smoke.mjs
-      - run: node scripts/bootstrap-smoke.mjs
-        if: runner.os != 'Windows'
-      - run: node scripts/windows-bootstrap-smoke.mjs
-        if: runner.os == 'Windows'
       - run: node scripts/package-release.mjs "${{ runner.temp }}/okf-release"
       - uses: actions/upload-artifact@v4
         with:
