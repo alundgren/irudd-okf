@@ -271,6 +271,22 @@ describe('routine librarian work', () => {
     expect(restored.humanRequired).toBe(true);
     const kind=await accepted(f,'kind.md',raw('kind','Run tests before pushing.'));
     expect((await f.propose(kind.path,raw('kind','Run tests before pushing.','procedural'),kind.after!.hash)).humanRequired).toBe(true);
+    const reviewed=await accepted(f,'reviewed.md',raw('reviewed','Run the reviewed deploy.','procedural'));
+    const replacement=await f.propose('reviewed-v2.md',raw('reviewed-v2','Run an unchecked deploy.','procedural'));await f.review(replacement);
+    expect((await f.propose(reviewed.path,archived(reviewed.after!.raw),reviewed.after!.hash)).humanRequired).toBe(true);
+  });
+  it('keeps outside edits in front of a person when an agent proposes over them', async () => {
+    const f=await fixture();
+    const fact=await accepted(f,'fact.md',raw('fact','A reviewed fact.'));
+    const summary=await f.propose('summary.md',raw('summary','Summary of the fact.'),null,{sources:[pin(fact)]});await f.review(summary);
+    const edited=raw('fact','A reviewed fact. A note only the person added.');
+    await fs.writeFile(path.join(f.bundle,'fact.md'),edited);
+    const removal=await f.propose('fact.md',null,hash(edited));
+    expect(removal.humanRequired).toBe(true);await expect(f.review(removal)).rejects.toMatchObject({code:'HUMAN_REVIEW_REQUIRED'});
+    const procedure=await accepted(f,'procedure.md',raw('procedure','Run the checked command.','procedural'));
+    const changed=raw('procedure','Run the checked command twice.','procedural');
+    await fs.writeFile(path.join(f.bundle,'procedure.md'),changed);
+    expect((await f.propose('procedure.md',procedure.after!.raw,hash(changed))).humanRequired).toBe(true);
   });
   it('rechecks a routine removal at review and lets a pending removal be proposed again under current rules', async () => {
     const f=await fixture();

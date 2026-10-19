@@ -17,7 +17,8 @@ for the next run instead of rereading the whole bundle.
 
 Proposals left pending by an earlier run keep the review requirement recorded
 when they were made. Propose the same bytes again so core records a fresh
-proposal with the current rules; the old one becomes superseded.
+proposal with the current rules; the old one becomes superseded. Outside edits
+and migrations stay with the person.
 
 ## Look for work
 
@@ -58,8 +59,9 @@ change is not human-required.
 - Promote stage by the work done: silver for normalized, attributable knowledge
   with sources; gold for curated guidance with checked evidence and stated limits.
   A stage change does not grant human approval and never widens applicability.
-- Archive stale or obsolete memories by setting `memory.archived_at`, and add
-  `memory.replaced_by` when a newer memory covers the lesson.
+- Archive stale or obsolete facts and episodes by setting `memory.archived_at`,
+  and add `memory.replaced_by` when a newer memory covers the lesson. Archiving
+  a procedure needs a human.
 - Repair index entries and links. Each file is its own proposal; propose the
   memory first and its index edit second.
 
@@ -73,7 +75,8 @@ and the evidence:
 - Changing applicability.
 - Deleting a procedure, or deleting a memory no retained memory cites.
 - Replacing or removing a memory's sources.
-- Un-archiving or extending the expiry of a procedure.
+- Archiving, un-archiving or changing the expiry of a procedure.
+- Anything touching a file with a pending outside edit or migration.
 - Contradictions the evidence does not settle, and anything you are unsure about.
 
 Core marks most of these as human-required and rejects an agent review of them.

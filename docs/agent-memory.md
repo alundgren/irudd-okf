@@ -63,11 +63,12 @@ Agents may assess routine changes: new memories, edits to facts and episodes,
 added evidence, stage changes, archiving and lifecycle dates. These need a human
 decision:
 
-- Changes to what a procedure says, including its kind, metadata and body.
-  Stage, `stale_after`, sources and `derived_from` are not part of the procedure
-  text. Adding `archived_at` or `expires_at` is routine; removing or changing an
-  existing value is not.
-- Applicability changes, external edits and malformed files.
+- Changes to what a procedure says, including its kind, metadata, body and its
+  archive, expiry or deprecation. Stage, `stale_after`, sources and
+  `derived_from` are not part of the procedure text.
+- Applicability changes, external edits and malformed files. While an external
+  edit, a migration or a person's own proposal is pending for a file, every
+  newer proposal for that file needs a human too.
 - Updates that leave out an earlier source or depend on a corrected source.
   A source that only changed stage or lifecycle dates still counts as kept.
 - Removals, unless the memory is a fact or episode whose exact accepted revision

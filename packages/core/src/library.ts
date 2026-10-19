@@ -119,12 +119,10 @@ function evidenceDigest(raw:string):string {
   delete memory.stage;delete memory.archived_at;delete memory.expires_at;delete metadata.stale_after;
   return hash(canonicalJson({metadata,body:concept.body}));
 }
-// Procedure guidance excludes stage, review dates and evidence links. Archiving or adding an expiry is routine;
-// removing or moving an existing date could bring back guidance a person retired.
+// Procedure guidance excludes stage, review dates and evidence links. Archive and expiry dates stay included:
+// retiring a reviewed procedure would let an agent replace it with its own unreviewed steps.
 function procedureChanged(old: Concept, next: Concept): boolean {
-  const content = (concept: Concept) => {const metadata=structuredClone(concept.metadata),memory=record(metadata.memory);delete memory.stage;delete memory.derived_from;delete memory.archived_at;delete memory.expires_at;delete metadata.sources;delete metadata.stale_after;return canonicalJson({metadata,body:concept.body});};
-  const prior = record(old.metadata.memory), updated = record(next.metadata.memory);
-  if (['archived_at','expires_at'].some(field => prior[field] !== undefined && canonicalJson(prior[field]) !== canonicalJson(updated[field]))) return true;
+  const content = (concept: Concept) => {const metadata=structuredClone(concept.metadata),memory=record(metadata.memory);delete memory.stage;delete memory.derived_from;delete metadata.sources;delete metadata.stale_after;return canonicalJson({metadata,body:concept.body});};
   return content(old) !== content(next);
 }
 function humanRequired(before: string | null, after: string | null, bundle: string, file: string): boolean {
@@ -276,7 +274,9 @@ export function createLibrary(context: MemoryContext, options: StoreOptions = {}
       const consolidated = request.raw === null && await consolidatedDelete(bundle, history, file, baseline);
       const sourceLoss = !consolidated && (baselineProposal && !await keepsSources(bundle, file, baselineProposal.sources, sources) || priorSources.length>afterSources.length);
       proposal.humanRequired = request.raw === null ? !consolidated : proposal.humanRequired;
-      if (sourceWidening || lastHuman?.decision==='reject' || sourceLoss) proposal.humanRequired=true;
+      // An outside edit, a migration or a person's own proposal has not been seen by a person yet; a newer agent proposal must not hide it.
+      const unseen = !!latest && latest.humanRequired && view(history, latest).status === 'pending' && (latest.actor.type === 'human' || ['external-edit','migration'].includes(latest.actor.id));
+      if (sourceWidening || lastHuman?.decision==='reject' || sourceLoss || unseen) proposal.humanRequired=true;
       proposal.revisionHash=proposalDigest(proposal);
       // Publication intent is durable before Markdown changes, so a retry completes the same proposal.
       history.proposals.push(proposal); history.publication = { id: proposal.id, expectedHash: request.expectedHash }; await persist(bundle, history);
