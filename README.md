@@ -254,8 +254,11 @@ applicability.
 
 Pending edits and removals preserve the last accepted revision for ordinary
 recall. The change commands expose the exact proposal, supporting sources,
-review decisions and recovery history. Routine librarian decisions record an
-agent reviewer. Changes requiring human judgment remain pending. A derived
+review decisions and recovery history. Routine librarian work, such as
+consolidating episodes, merging duplicates, adding evidence, promoting stage and
+archiving, records an agent reviewer. Changes to procedure steps or
+applicability, lost evidence and removals of memories no retained memory cites
+remain pending for a human. A derived
 procedure or fact retains source revisions and receives its own review.
 
 Ask your existing coding agent to run a dreaming loop. Scope's permanent
@@ -333,13 +336,11 @@ node scripts/native-smoke.mjs
 npm run okf -- context
 ```
 
-Native CI executes the built client on Windows x64, and on Linux and macOS,
-each on x64 and arm64. Windows CI uses an x64 Windows Server 2025 runner.
-It tests the PowerShell installer, user PATH, source upgrades, and replacement
-of the running executable. Windows 11 desktop execution is not a separate CI job.
-All native jobs extract their release archive and repeat the standalone smoke
-checks. A pushed `v*` tag publishes all five packages and `SHA256SUMS` only
-after native validation succeeds.
+Run the checks and smoke scripts locally before a release, including
+`scripts/installer-smoke.mjs` and the bootstrap smoke script for your platform.
+A pushed `v*` tag builds packages on Linux, macOS and Windows runners and
+publishes all five packages and `SHA256SUMS`. The release workflow runs no
+tests.
 
 Native validation exercises the CLI and its embedded skills without Node on
 PATH. Library journeys and agent review sessions are validated in irudd-scope.

@@ -113,17 +113,25 @@ export function validLibraryNote(bundle: string, file: string, raw: string): Con
   }
   return concept;
 }
+// Stage and lifecycle dates do not change what a source says, so dependents keep their evidence when they change.
 function evidenceDigest(raw:string):string {
   const concept=parseConcept('', 'evidence.md', raw),metadata=structuredClone(concept.metadata),memory=record(metadata.memory);
-  delete memory.archived_at;delete memory.expires_at;delete metadata.stale_after;
+  delete memory.stage;delete memory.archived_at;delete memory.expires_at;delete metadata.stale_after;
   return hash(canonicalJson({metadata,body:concept.body}));
+}
+// Procedure guidance excludes stage, review dates and evidence links. Archive and expiry dates stay included:
+// retiring a reviewed procedure would let an agent replace it with its own unreviewed steps.
+function procedureChanged(old: Concept, next: Concept): boolean {
+  const content = (concept: Concept) => {const metadata=structuredClone(concept.metadata),memory=record(metadata.memory);delete memory.stage;delete memory.derived_from;delete metadata.sources;delete metadata.stale_after;return canonicalJson({metadata,body:concept.body});};
+  return content(old) !== content(next);
 }
 function humanRequired(before: string | null, after: string | null, bundle: string, file: string): boolean {
   if (before === null) return false;
   if (after === null) return true;
   const old = parseConcept(bundle, file, before), next = parseConcept(bundle, file, after);
   const prior = record(old.metadata.memory), updated = record(next.metadata.memory);
-  return old.malformed || next.malformed || prior.kind === 'procedural' || updated.kind === 'procedural' || canonicalJson(prior.applicability) !== canonicalJson(updated.applicability);
+  if (old.malformed || next.malformed || canonicalJson(prior.applicability) !== canonicalJson(updated.applicability)) return true;
+  return (prior.kind === 'procedural' || updated.kind === 'procedural') && procedureChanged(old, next);
 }
 function makeProposal(bundle: Bundle, request: ChangeRequest, before: string | null, sources: SourceRevision[]): ChangeProposal {
   const payload: Omit<ChangeProposal, 'revisionHash'> = { version: 1, id: randomUUID(), bundle: bundle.name, path: request.path, action: request.raw === null ? 'delete' : before === null ? 'create' : 'update', before: bytes(before), after: bytes(request.raw), actor: request.actor, reason: request.reason, createdAt: new Date().toISOString(), sources, humanRequired: humanRequired(before, request.raw, bundle.name, request.path), ...(request.requestId ? { requestId: request.requestId, requestHash: hash(canonicalJson({...request,authorizePersonal:undefined,sources:request.sources ?? []})), expectedHash:request.expectedHash } : {}) };
@@ -195,6 +203,37 @@ export function createLibrary(context: MemoryContext, options: StoreOptions = {}
     const unique = new Map(normalized.map(source => [sourceKey(source), source]));
     return [...unique.values()].sort((a, b) => sourceKey(a).localeCompare(sourceKey(b)));
   };
+  // A fact or episode can be removed without a person once a retained, reviewed memory with the same or global
+  // applicability pins its exact accepted revision. History keeps the removed bytes, and change undo restores them.
+  const consolidatedDelete = async (bundle: Bundle, history: History, file: string, before: string | null): Promise<boolean> => {
+    if (before === null || isControl(file)) return false;
+    const removed = parseConcept(bundle.name, file, before), memory = record(removed.metadata.memory);
+    if (removed.malformed || memory.kind === 'procedural') return false;
+    let scope: Applicability; try { scope = applicability(memory.applicability); } catch { return false; }
+    const revision = hash(before), bundleId = (await inspectLibrary(bundle)).id, now = (options.now?.() ?? new Date()).getTime();
+    for (const [path, proposal] of accepted(history)) {
+      if (path === file || !proposal.after || isControl(path)) continue;
+      if (!proposal.sources.some(source => source.hash === revision && (source.bundle === undefined || source.bundle === bundleId || source.bundle === bundle.name) && (source.path === file || nonempty(memory.id) && source.id === memory.id))) continue;
+      const citing = parseConcept(bundle.name, path, proposal.after.raw), citingMemory = record(citing.metadata.memory);
+      if (citing.malformed || citingMemory.archived_at || citing.metadata.status === 'deprecated' || typeof citingMemory.expires_at === 'string' && Date.parse(citingMemory.expires_at) <= now) continue;
+      let citingScope: Applicability; try { citingScope = applicability(citingMemory.applicability); } catch { continue; }
+      if (citingScope.type !== 'global' && canonicalJson(citingScope) !== canonicalJson(scope)) continue;
+      try { await sourcesFor(bundle, path, proposal.after.raw, proposal.sources); } catch { continue; }
+      return true;
+    }
+    return false;
+  };
+  // A baseline source is kept when the new sources still name it and its pinned revision still resolves,
+  // including through a stage or lifecycle change with the same evidence.
+  const keepsSources = async (bundle: Bundle, file: string, baseline: SourceRevision[], next: SourceRevision[]): Promise<boolean> => {
+    const identity = (source: SourceRevision) => `${source.bundle ?? ''}:${source.id ?? ''}:${source.path}`;
+    for (const source of baseline) {
+      if (next.some(item => sourceKey(item) === sourceKey(source))) continue;
+      if (!next.some(item => identity(item) === identity(source))) return false;
+      try { await sourcesFor(bundle, file, null, [source]); } catch { return false; }
+    }
+    return true;
+  };
   const propose = async (request: ChangeRequest): Promise<ChangeRecord> => {
     request = decode(ChangeSchema, request); identity(request.actor, request.reason); digest(request.expectedHash);
     const bundle = select(request.bundle); writable(bundle, request); await requireLibrary(bundle);
@@ -208,7 +247,11 @@ export function createLibrary(context: MemoryContext, options: StoreOptions = {}
       const acceptedByPath=accepted(history);
       const before = await current(bundle, file);
       if ((before === null ? null : hash(before)) !== request.expectedHash) throw new OkfError('CONFLICT', 'The proposed file revision changed.', { expectedHash: request.expectedHash, actualHash: before === null ? null : hash(before) });
-      if (request.raw === null && before === null) throw new OkfError('NOT_FOUND', 'Cannot remove an absent memory.');
+      const latest = history.proposals.findLast(item => item.path === file);
+      // A newer proposal would supersede these, and only the latest proposal can be reviewed, so a person would never see them.
+      if (request.actor.type === 'agent' && latest?.humanRequired && view(history, latest).status === 'pending' && (latest.actor.type === 'human' || ['external-edit','migration'].includes(latest.actor.id))) throw new OkfError('HUMAN_DECISION_PENDING', 'A person must first decide the pending outside edit, migration or human proposal for this file. Present that change instead.', { changeId: latest.id });
+      const pendingRemoval = before === null && latest?.after === null && view(history, latest).status === 'pending' && !!acceptedByPath.get(file)?.after;
+      if (request.raw === null && before === null && !pendingRemoval) throw new OkfError('NOT_FOUND', 'Cannot remove an absent memory.');
       if (request.raw !== null) {
         const concept = validLibraryNote(bundle.name, file, request.raw), memory = record(concept.metadata.memory);
         if (!isControl(file)) {
@@ -230,7 +273,11 @@ export function createLibrary(context: MemoryContext, options: StoreOptions = {}
       let sourceWidening=false;
       if(request.raw!==null && !isControl(file)) {const target=applicability(record(parseConcept(bundle.name,file,request.raw).metadata.memory).applicability);sourceWidening=sources.some(source=>!source.applicability || source.applicability.type!=='global' && (target.type!==source.applicability.type || target.id!==source.applicability.id));}
       const lastHuman=history.decisions.findLast(event=>event.review.actor.type==='human' && history.proposals.find(item=>item.id===event.id)?.path===file)?.review;
-      if (request.raw === null || sourceWidening || lastHuman?.decision==='reject' || baselineProposal && canonicalJson(baselineProposal.sources)!==canonicalJson(sources) || priorSources.length>afterSources.length) {proposal.humanRequired=true;proposal.revisionHash=proposalDigest(proposal);}
+      const consolidated = request.raw === null && await consolidatedDelete(bundle, history, file, baseline);
+      const sourceLoss = !consolidated && (baselineProposal && !await keepsSources(bundle, file, baselineProposal.sources, sources) || priorSources.length>afterSources.length);
+      proposal.humanRequired = request.raw === null ? !consolidated : proposal.humanRequired;
+      if (sourceWidening || lastHuman?.decision==='reject' || sourceLoss) proposal.humanRequired=true;
+      proposal.revisionHash=proposalDigest(proposal);
       // Publication intent is durable before Markdown changes, so a retry completes the same proposal.
       history.proposals.push(proposal); history.publication = { id: proposal.id, expectedHash: request.expectedHash }; await persist(bundle, history);
       await options.afterChangeWrite?.('prepared',proposal.id);
@@ -313,7 +360,8 @@ export function createLibrary(context: MemoryContext, options: StoreOptions = {}
         const proposal = history.proposals.find(item => item.id === request.id);
         if (!proposal) throw new OkfError('CHANGE_NOT_FOUND', 'The immutable change does not exist.');
         if (proposal.revisionHash !== request.expectedRevisionHash || history.proposals.findLast(item => item.path === proposal.path)?.id !== proposal.id) throw new OkfError('REVIEW_CONFLICT', 'Review must bind the latest exact proposed revision.');
-        if (proposal.humanRequired && request.actor.type !== 'human') throw new OkfError('HUMAN_REVIEW_REQUIRED', 'This change requires a human decision because it changes procedural guidance, applicability, external bytes or removes evidence.');
+        // Retention of the citing memory can change after the removal was proposed.
+        if (request.actor.type !== 'human' && (proposal.humanRequired || request.decision === 'accept' && proposal.after === null && !await consolidatedDelete(bundle, history, proposal.path, proposal.before?.raw ?? null))) throw new OkfError('HUMAN_REVIEW_REQUIRED', 'This change requires a human decision because it changes procedure steps or applicability, edits files outside the library, removes or replaces evidence, or removes a memory no retained memory cites.');
         const sources = await sourcesFor(bundle, proposal.path, proposal.after?.raw ?? null, proposal.sources);
         const requested = await sourcesFor(bundle, proposal.path, null, request.sources);
         if (canonicalJson(sources) !== canonicalJson(requested)) throw new OkfError('SOURCE_CONFLICT', 'Review must include every exact supporting source revision.', { sources });

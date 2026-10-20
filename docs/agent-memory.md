@@ -57,9 +57,34 @@ after bytes, immutable revisionHash, sources, humanRequired and review history.
 expectedRevisionHash, decision, actor, reason and all exact source revisions.
 Human actors require operator:true. This records declared identity, without
 claiming authentication. Agent and human events remain separately visible; the
-latest human decision controls a reviewed proposal. Agents may assess routine
-changes, while existing procedural edits, applicability changes, external edits
-and removals require a human decision.
+latest human decision controls a reviewed proposal.
+
+Agents may assess routine changes: new memories, edits to facts and episodes,
+added evidence, stage changes, archiving and lifecycle dates. These need a human
+decision:
+
+- Changes to what a procedure says, including its kind, metadata, body and its
+  archive, expiry or deprecation. Stage, `stale_after`, sources and
+  `derived_from` are not part of the procedure text.
+- Applicability changes, external edits and malformed files. While an external
+  edit, a migration or a person's own proposal is pending for a file, agent
+  proposals for that file fail with `HUMAN_DECISION_PENDING`; present the
+  pending change instead.
+- Updates that leave out an earlier source or depend on a corrected source.
+  A source that only changed stage or lifecycle dates still counts as kept.
+- Removals, unless the memory is a fact or episode whose exact accepted revision
+  is a source of another accepted memory that is retained, not archived, expired
+  or deprecated, has valid sources and has the same or global applicability.
+  `change review` checks this again, so a removal becomes human-required if the
+  citing memory is archived first.
+
+Removing a file that already has a pending removal records a new proposal under
+the current rules and supersedes the old one.
+
+Trust labels describe the current revision. An agent-reviewed stage change to a
+human-reviewed memory shows `machine-confirmed`, because no person saw the new
+bytes. The library does not apply the profile setting `gold_review: human`;
+agents can promote to gold.
 
 Local source metadata and derived_from references automatically become source
 guards, so a caller cannot omit them. Sources identify stable bundle/memory IDs
