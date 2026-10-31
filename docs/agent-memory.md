@@ -70,6 +70,8 @@ decision:
   edit, a migration or a person's own proposal is pending for a file, agent
   proposals for that file fail with `HUMAN_DECISION_PENDING`; present the
   pending change instead.
+- Creating, editing or removing a bot catalog or bot definition, judged by the
+  type before and after the change.
 - Updates that leave out an earlier source or depend on a corrected source.
   A source that only changed stage or lifecycle dates still counts as kept.
 - Removals, unless the memory is a fact or episode whose exact accepted revision
@@ -125,3 +127,84 @@ versioned library. Use tracked changes for metadata, lifecycle and navigation ed
 
 Selective Git Markdown publication is unavailable for versioned libraries. Sync
 the full bundle, including marker and portable revision history.
+
+## Bot definitions
+
+A bot is one complete named definition stored as accepted library memory. There
+are no reusable roles, templates or inheritance. Each library registers its bots
+in `bots/catalog.md`, an accepted memory with `type: Bot catalog`:
+
+```markdown
+---
+type: Bot catalog
+title: Bots
+memory: {id: bot-catalog, kind: procedural, stage: bronze, applicability: {type: global}}
+bots:
+  - {id: game1-playtester, definition: game1-playtester.md}
+---
+```
+
+Each entry pairs a stable bot ID with a definition path relative to the catalog.
+The definition's memory ID must equal that ID. A definition has
+`type: Bot definition` and a `bot` mapping:
+
+```yaml
+memory: {id: game1-playtester, kind: procedural, stage: bronze, applicability: {type: global}}
+bot:
+  name: "game1: playtester"        # literal visible name; spaces and colons allowed
+  purpose: Plays game1 and turns observations into feedback.
+  identity: |                      # persona and soul
+    ...
+  instructions: |                  # operational instructions
+    ...
+  collaborators:                   # stable bot IDs; bundle defaults to this library
+    - {bot: game1-coordinator, handoff: Send accepted feedback to the coordinator.}
+  memory:                          # explicit targets; nothing is inferred
+    - id: own-notes
+      role: own                    # own or shared
+      path: game1/playtester       # a directory prefix or one .md note
+      repository: game1            # applicability context used when reading
+      read: On activation and when asked to refresh.
+      write: Propose an observation after a verified playtest.
+  workspace: Optional workspace guidance.
+  tests: Optional test guidance.
+```
+
+A memory target may name another library by its stable bundle ID (`bundle`,
+from `bundle inspect`); otherwise it reads the definition's own library. Targets
+select accepted memories with the declared `repository` or `machine`
+applicability plus global memories. Bundle aliases, bot names and the working
+directory never select memory.
+
+A person decides every creation, edit and removal of a catalog or definition,
+including a definition for an entry that is already registered, and every
+proposal at `bots/catalog.md` whatever its type. Agents cannot
+accept or reject these changes. Both documents must also be procedural.
+
+`bot list` reads accepted catalogs in every selected library and returns names,
+short purposes, stable IDs, accepted definition revisions and diagnostics. It
+returns no memory content. `bot resolve NAME` matches the name exactly and
+returns the accepted definition, collaborators and the current accepted
+documents of each memory target. `--id ID` resolves a stable ID; `--scope
+BUNDLE` enumerates only that library; other libraries are read only when a
+memory target or collaborator names them. Unknown names (`BOT_NOT_FOUND`),
+shared names (`BOT_NAME_AMBIGUOUS`) and registrations whose definition is
+missing, pending, invalid or excluded (`BOT_UNAVAILABLE`) fail without
+selecting another bot. An unavailable registration whose accepted definition
+still declares a name counts as a namesake, so it makes that name ambiguous
+rather than letting another library's bot answer. Registrations without an
+accepted name are listed in error details or as a `BOT_UNNAMED_REGISTRATIONS`
+warning. When a library cannot be read, or its catalog is invalid or in an
+unsupported format, `bot list` reports it and an unscoped `bot resolve` fails
+with `BOT_CATALOG_INCOMPLETE`; use `--scope` for a readable library. Broken
+memory or collaborator references appear in `diagnostics` with
+`complete: false`; no other memory is substituted.
+
+Pending catalog and definition changes never replace accepted ones. Memory
+targets are destinations, not provenance: each resolution reads their current
+accepted revision, and accepting a memory update leaves the definition
+unchanged. Use `sources` or `derived_from` only for evidence pinned to an exact
+revision.
+
+A bot's memory proposals keep the actual run as actor `{type, id}`. Record the
+persona separately in the note, for example `persona: {bot: game1-playtester}`.

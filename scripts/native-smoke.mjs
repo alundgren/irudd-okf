@@ -43,6 +43,8 @@ try {
   assert.equal(inspection.formatVersion, inspection.supportedFormatVersion);
   assert.equal(run('context').gitRoot, null);
   assert.equal(run('profile', 'repo').mode, 'memory');
+  assert.deepEqual(run('bot', 'list'), { version: 1, bots: [], diagnostics: [] });
+  assert.equal(run('cli', 'schema', 'bot', 'resolve').command, 'bot resolve');
   const template = run('template', 'repo', '--file', await request({ kind: 'semantic', title: 'Template example', description: 'Current-format authoring.', tags: [], actor: 'native-smoke', applicability: { type: 'global' } }));
   const authored = run('change', 'propose', 'repo', '--file', await request({ path: 'template.md', raw: template.raw, expectedHash: null, actor, reason: 'Check native template output.' }));
   assert.equal(authored.status, 'pending');

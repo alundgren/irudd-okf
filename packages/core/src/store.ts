@@ -12,6 +12,7 @@ import { attachMemoryOperations } from './memory-operations.ts';
 import { projectDocuments, discoverProfile, assertNamespace, metadataLinks, namespaceOf, patchMetadata, rewriteMetadataLinks, dateValue, isMemoryPolicyPath } from './memory.ts';
 import { createLibrary, inspectLibrary, assertLibraryWrite, attachLibraryMigration, validLibraryNote } from './library.ts';
 import { parseConcept, reserved, resolveLink } from './parser.ts';
+import { createBotOperations } from './bots.ts';
 
 const summary = (concept: Concept): ConceptSummary => ({ bundle: concept.bundle, path: concept.path, title: concept.title, type: concept.type, description: concept.description, tags: [...concept.tags], hash: concept.hash, malformed: concept.malformed, ...(concept.memory ? { memory: structuredClone(concept.memory) } : {}) });
 const compare = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
@@ -473,7 +474,7 @@ export function createStore(input: MemoryContext, options: StoreOptions = {}): S
     if((await inspectLibrary(select(context,bundle))).status==='current')throw new OkfError('APPLICABILITY_CONTEXT_REQUIRED','Use explicit --machine or --repository identity; topics are tags and bundle aliases do not define applicability.');
     return Effect.runPromise(oldNamespaces(bundle));
   });
-  Object.assign(store, library.methods);
+  Object.assign(store, library.methods, createBotOperations(context, library.acceptedDocuments));
   attachLibraryMigration(store, context, options);
   const oldReview = store.review;
   store.review = request => operation(async () => {

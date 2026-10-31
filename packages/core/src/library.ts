@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import type { Applicability, Bundle, BundleInspection, ChangeProposal, ChangeRecord, ChangeRequest, ChangeReview, Concept, MemoryActor, MemoryContext, RecallSelection, SourceRevision, Store, StoreOptions, MaintenancePreview } from './contracts.ts';
-import { OkfError, SUPPORTED_FORMAT_VERSION, VERSION } from './contracts.ts';
+import { BOT_CATALOG_PATH, BOT_CATALOG_TYPE, BOT_DEFINITION_TYPE, OkfError, SUPPORTED_FORMAT_VERSION, VERSION } from './contracts.ts';
 import { absent, atomicCreate, atomicReplace, canonicalDirectory, cleanPath, guarded, hash, operation, readRaw, scan, withLock } from './files.ts';
 import { parseConcept, reserved, resolveLink } from './parser.ts';
 import { canonicalJson, patchMetadata, record, metadataLinks } from './memory.ts';
@@ -125,7 +125,13 @@ function procedureChanged(old: Concept, next: Concept): boolean {
   const content = (concept: Concept) => {const metadata=structuredClone(concept.metadata),memory=record(metadata.memory);delete memory.stage;delete memory.derived_from;delete metadata.sources;delete metadata.stale_after;return canonicalJson({metadata,body:concept.body});};
   return content(old) !== content(next);
 }
+// Bot catalogs and definitions decide which identity, instructions and memory a bot receives, so a person decides
+// every creation, edit and removal, whatever kind the document declares.
+// The catalog path counts whatever its type: an ordinary note there would block every unscoped bot resolution.
+// Compare it case-insensitively because Windows and macOS file systems usually are.
+function botDocument(raw: string | null | undefined, bundle: string, file: string): boolean { if (raw === null || raw === undefined) return false; if (file.toLowerCase() === BOT_CATALOG_PATH) return true; const type = parseConcept(bundle, file, raw).type; return type === BOT_CATALOG_TYPE || type === BOT_DEFINITION_TYPE; }
 function humanRequired(before: string | null, after: string | null, bundle: string, file: string): boolean {
+  if (botDocument(before, bundle, file) || botDocument(after, bundle, file)) return true;
   if (before === null) return false;
   if (after === null) return true;
   const old = parseConcept(bundle, file, before), next = parseConcept(bundle, file, after);
@@ -276,7 +282,7 @@ export function createLibrary(context: MemoryContext, options: StoreOptions = {}
       const consolidated = request.raw === null && await consolidatedDelete(bundle, history, file, baseline);
       const sourceLoss = !consolidated && (baselineProposal && !await keepsSources(bundle, file, baselineProposal.sources, sources) || priorSources.length>afterSources.length);
       proposal.humanRequired = request.raw === null ? !consolidated : proposal.humanRequired;
-      if (sourceWidening || lastHuman?.decision==='reject' || sourceLoss) proposal.humanRequired=true;
+      if (sourceWidening || lastHuman?.decision==='reject' || sourceLoss || botDocument(baseline, bundle.name, file) || botDocument(request.raw, bundle.name, file)) proposal.humanRequired=true;
       proposal.revisionHash=proposalDigest(proposal);
       // Publication intent is durable before Markdown changes, so a retry completes the same proposal.
       history.proposals.push(proposal); history.publication = { id: proposal.id, expectedHash: request.expectedHash }; await persist(bundle, history);
@@ -361,7 +367,8 @@ export function createLibrary(context: MemoryContext, options: StoreOptions = {}
         if (!proposal) throw new OkfError('CHANGE_NOT_FOUND', 'The immutable change does not exist.');
         if (proposal.revisionHash !== request.expectedRevisionHash || history.proposals.findLast(item => item.path === proposal.path)?.id !== proposal.id) throw new OkfError('REVIEW_CONFLICT', 'Review must bind the latest exact proposed revision.');
         // Retention of the citing memory can change after the removal was proposed.
-        if (request.actor.type !== 'human' && (proposal.humanRequired || request.decision === 'accept' && proposal.after === null && !await consolidatedDelete(bundle, history, proposal.path, proposal.before?.raw ?? null))) throw new OkfError('HUMAN_REVIEW_REQUIRED', 'This change requires a human decision because it changes procedure steps or applicability, edits files outside the library, removes or replaces evidence, or removes a memory no retained memory cites.');
+        // Bot documents are rechecked here so proposals recorded before this rule still reach a person.
+        if (request.actor.type !== 'human' && (proposal.humanRequired || botDocument(proposal.before?.raw, bundle.name, proposal.path) || botDocument(proposal.after?.raw, bundle.name, proposal.path) || request.decision === 'accept' && proposal.after === null && !await consolidatedDelete(bundle, history, proposal.path, proposal.before?.raw ?? null))) throw new OkfError('HUMAN_REVIEW_REQUIRED', 'This change requires a human decision because it changes procedure steps, applicability or a bot catalog or definition, edits files outside the library, removes or replaces evidence, or removes a memory no retained memory cites.');
         const sources = await sourcesFor(bundle, proposal.path, proposal.after?.raw ?? null, proposal.sources);
         const requested = await sourcesFor(bundle, proposal.path, null, request.sources);
         if (canonicalJson(sources) !== canonicalJson(requested)) throw new OkfError('SOURCE_CONFLICT', 'Review must include every exact supporting source revision.', { sources });
