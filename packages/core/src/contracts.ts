@@ -139,7 +139,8 @@ export interface MigrationRequest {
   bundle: string; policy?: Partial<Omit<MemoryPolicy, 'name' | 'version'>>;
   decisions?: Record<string, MigrationDecision>;
 }
-export interface StoreOptions { afterChangeWrite?: (phase: 'prepared' | 'published', changeId: string) => Promise<void>; now?: () => Date; afterJournalWrite?: (completedPaths: number) => Promise<void> }
+// onWarning receives read diagnostics that do not change a result, such as an unfinished publication; the CLI prints them to stderr after a successful command.
+export interface StoreOptions { afterChangeWrite?: (phase: 'prepared' | 'published', changeId: string) => Promise<void>; now?: () => Date; afterJournalWrite?: (completedPaths: number) => Promise<void>; onWarning?: (diagnostic: Diagnostic) => void }
 
 export interface MigrationDecision { id?: string; applicability?: Applicability; raw?: string; kind?: MemoryKind; stage?: MemoryStage; namespace?: string; actor?: string; at?: string; title?: string; description?: string; tags?: string[]; sources?: Array<string | { resource: string; [key: string]: unknown }>; status?: string; occurredAt?: string; task?: MemoryTask; retentionReason?: string | null; expiresAt?: string | null; staleAfter?: string | null; archivedAt?: string | null; prerequisites?: string[]; replaces?: string[]; replacedBy?: string | null; derivedFrom?: Derivation[] }
 export interface MaintenanceInspectRequest { bundle: string; previewHash: string }

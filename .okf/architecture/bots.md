@@ -36,9 +36,20 @@ Targets are destinations resolved to the current accepted revision. Do not put
 them in `sources` or `derived_from`: those pin evidence revisions, and an
 accepted update would exclude the definition from recall.
 
-Library reads take the bundle write lock, so two concurrent CLI reads of one
-library can fail with `LOCKED`. Retry after the other command finishes. A
-locked library is reported as `BOT_LIBRARY_LOCKED`, not as damage, and an
-unscoped resolve blocked only by locks fails with `LOCKED`. With
-`--scope`, resolution reads only that library and libraries its references
-name, so an unrelated locked library does not block it.
+`skills/bot` is an ordinary skill invoked the way each provider invokes any
+skill (`/bot`, `$bot`, T3's `/skill:bot`); there is no custom invocation
+handling. It is manual-only through `disable-model-invocation: true` and
+Codex `agents/openai.yaml` `allow_implicit_invocation: false`, both packaged
+and tested. A quoted name, or else the longest registered name at the start
+of the arguments, selects the bot; the agent asks rather than guessing.
+Without a name it offers `bot list` through the host's question tool or a
+plain list. It activates only through `bot resolve` and prints a reload line
+with the stable ID and library so a compacted thread resolves the same bot.
+There is no auto-activation, polling, scheduling or bot-to-bot messaging.
+
+`bot list`, `bot resolve` and `bot check` are reads: they take no lock and
+write nothing (see [agent memory](agent-memory.md)), so a running writer or a
+read-only sandbox never blocks them. Only a library that cannot be read, such
+as one with damaged history, is `BOT_LIBRARY_UNREADABLE`. With `--scope`,
+resolution reads only that library and libraries its references name, so an
+unrelated unreadable library does not block it.

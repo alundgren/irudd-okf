@@ -45,6 +45,14 @@ previous accepted memory. Rejection restores accepted bytes and retains the exac
 rejected draft in history. External Markdown edits and removals become tracked
 proposals and cannot replace accepted recall by bypassing the CLI.
 
+Reads take no lock and write no files, so they work in a read-only sandbox,
+in parallel and while another command writes. Accepted results come from
+portable history, which outside edits cannot change. The next write, which
+holds the lock, records outside edits as pending `external-edit` proposals.
+Until then `change list`, `change read` and `bot check` show them with the
+same change ID and revision the write will record, so they can be reviewed by
+that ID.
+
 `change propose BUNDLE --file REQUEST.json` records path, raw or null for removal,
 expectedHash of the current file or null for new files, actor `{type,id}`, reason
 and optional sources. Use requestId for durable retries. Mutations enforce
@@ -99,6 +107,19 @@ including accepted removals. `change inspect` reads interrupted publication stat
 without acquiring the write lock. `change recover` verifies that a recorded writer
 has stopped, retains lock evidence and resumes its intent. Intervening external
 bytes become another pending revision and supersede the interrupted candidate.
+
+A decision is recorded in history before its Markdown file is updated, so a
+write that stopped in between leaves accepted results intact. Reads never
+complete it: after a successful command the CLI prints
+`{"version":1,"warnings":[{"code":"PUBLICATION_INCOMPLETE",...}]}` on stderr,
+and the next write completes the publication. When that file holds neither its
+old nor its new bytes, `change list`, `change read`, `change undo` and
+`bot check` fail with `PUBLICATION_INCOMPLETE` until `change recover` keeps
+those bytes as a new pending revision. Failed commands print only their error. Reads accept
+what they saw only when history is unchanged after reading the files, so a
+write that finishes meanwhile is never reported as stopped. If writes keep
+changing history through many attempts, those commands fail with
+`LIBRARY_BUSY`; retry them.
 
 ## Files and migration
 
@@ -208,6 +229,20 @@ revision.
 
 A bot's memory proposals keep the actual run as actor `{type, id}`. Record the
 persona separately in the note, for example `persona: {bot: game1-playtester}`.
+
+### Activating a bot
+
+The `bot` skill is manual-only: Claude Code runs it for `/bot`, Codex for
+`$bot`, and neither model loads it on its own. With arguments, a quoted name or
+the longest registered name at their start selects the bot and the rest is the
+task; without arguments it offers `bot list`. It activates the exact
+definition from `bot resolve`, reports the bot and its memory targets and
+prints `Active bot: ... Reload: irudd-okf bot resolve --id ID --scope LIBRARY` with
+the stable bundle ID,
+which a compacted or resumed conversation runs again. Memory refreshes only on
+invocation, at the definition's `read` rules or when asked. Observations go
+through `change propose` into the bot's declared targets; a person accepts
+them, and other bots see them on their next resolve.
 
 ### Creating and checking bots
 

@@ -1,0 +1,5 @@
+interface:
+  display_name: "Bot"
+  short_description: "Activate a named bot from an irudd-okf library"
+policy:
+  allow_implicit_invocation: false

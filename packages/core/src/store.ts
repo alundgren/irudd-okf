@@ -170,7 +170,9 @@ export function createStore(input: MemoryContext, options: StoreOptions = {}): S
           const key = `${bundle.name}:${file.path}`;
           let cached = cache.get(key);
           if (!cached || cached.fingerprint !== file.fingerprint) {
-            const raw = await readRaw(bundle, file.path);
+            let raw: string;
+            // Reads take no lock, so a concurrent library write may have removed the file since the scan.
+            try { raw = await readRaw(bundle, file.path); } catch (error) { if (absent(error)) continue; throw error; }
             cached = { fingerprint: file.fingerprint, concept: parseConcept(bundle.name, file.path, raw) };
             cache.set(key, cached);
           }
@@ -178,6 +180,7 @@ export function createStore(input: MemoryContext, options: StoreOptions = {}): S
         }
       }));
     }
+    for (let index = output.length - 1; index >= 0; index--) if (!output[index]) output.splice(index, 1);
     output.sort((a, b) => compare(id(a), id(b)));
     const clock = now();
     const libraryBundles=new Set<string>();
@@ -247,8 +250,10 @@ export function createStore(input: MemoryContext, options: StoreOptions = {}): S
     }),
     list: (bundle?: string, selection: RecallSelection = {}) => operation(async () => (await recall(await load(bundle, false), selection, bundle)).filter(concept => !reserved(concept.path)).map(summary)),
     read: (bundle, file, readOptions = {}) => operation(async () => {
-      const selected = select(context, bundle);
-      if (readOptions.current || (await inspectLibrary(selected)).status !== 'current') return read(bundle, file);
+      const selected = select(context, bundle), versioned = (await inspectLibrary(selected)).status === 'current';
+      // The current file of an unfinished publication may still hold its earlier bytes, so --current reports it.
+      if (readOptions.current && versioned) await library.publicationNotice(selected);
+      if (readOptions.current || !versioned) return read(bundle, file);
       const concept = (await library.acceptedDocuments(selected, { includeExcluded: true, allApplicability:readOptions.allApplicability,machine:readOptions.machine,repository:readOptions.repository })).find(item => item.path === cleanPath(file));
       if (!concept) throw new OkfError('NOT_ACCEPTED', 'This path has no accepted revision matching the selected applicability. Supply explicit context or use --all-applicability for accepted catalog inspection; change read and --current inspect proposals.');
       return concept;

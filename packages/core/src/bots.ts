@@ -95,7 +95,7 @@ export function createBotOperations(context: MemoryContext, acceptedDocuments: A
     };
   };
   const failure = (error: unknown) => error instanceof OkfError ? `${error.code}: ${error.message}` : error instanceof Error ? error.message : String(error);
-  // Stable library IDs come from manifests, which are read without the write lock.
+  // Stable library IDs come from manifests.
   async function libraryIds(): Promise<Map<string, Bundle>> {
     const output = new Map<string, Bundle>();
     for (const bundle of context.bundles) { try { const inspection = await inspectLibrary(bundle); if (inspection.status === 'current' && inspection.id && !output.has(inspection.id)) output.set(inspection.id, bundle); } catch { /* Reported when a target or catalog read needs this library. */ } }
@@ -115,9 +115,7 @@ export function createBotOperations(context: MemoryContext, acceptedDocuments: A
       bundleId = inspection.id;
       accepted = new Map((await read(bundle, { allApplicability: true, includeExcluded: true })).map(concept => [concept.path, concept]));
     } catch (error) {
-      // Accepted reads take the write lock, so a concurrent command is usually temporary; keep that distinct from damage.
-      if (error instanceof OkfError && error.code === 'LOCKED') block({ level: 'error', code: 'BOT_LIBRARY_LOCKED', bundle: bundle.name, message: 'Another command holds the library write lock (LOCKED), so its bots are unknown right now. Retry after it finishes; inspect the lock owner only if it persists.' });
-      else block({ level: 'error', code: 'BOT_LIBRARY_UNREADABLE', bundle: bundle.name, message: `The library could not be read, so its bots are unknown (${failure(error)}).` });
+      block({ level: 'error', code: 'BOT_LIBRARY_UNREADABLE', bundle: bundle.name, message: `The library could not be read, so its bots are unknown (${failure(error)}).` });
       return;
     }
     const catalog = accepted.get(BOT_CATALOG_PATH);
@@ -233,8 +231,7 @@ export function createBotOperations(context: MemoryContext, acceptedDocuments: A
       // With --scope only that library is enumerated; other libraries are read only when a reference names them.
       const all = await catalogs(read, request.bundle !== undefined ? [select(request.bundle)] : context.bundles);
       const label = name !== undefined ? `name ${JSON.stringify(name)}` : `id ${JSON.stringify(id)}`;
-      if (all.blocked.length && all.blocked.every(item => item.code === 'BOT_LIBRARY_LOCKED')) throw new OkfError('LOCKED', `Another command holds the write lock of ${all.blocked.map(item => item.bundle).join(', ')}, so a bot with the ${label} could exist there. Retry after it finishes, or resolve within one library with --scope.`, { diagnostics: all.blocked });
-      if (all.blocked.length) throw new OkfError('BOT_CATALOG_INCOMPLETE', `${all.blocked.length} selected ${all.blocked.length === 1 ? 'library has' : 'libraries have'} no readable bot catalog, so a bot with the ${label} could exist there. Repair ${all.blocked.map(item => item.bundle).join(', ')} (or retry if one is only locked by another command), or resolve within one readable library with --scope.`, { diagnostics: all.blocked });
+      if (all.blocked.length) throw new OkfError('BOT_CATALOG_INCOMPLETE', `${all.blocked.length} selected ${all.blocked.length === 1 ? 'library has' : 'libraries have'} no readable bot catalog, so a bot with the ${label} could exist there. Repair ${all.blocked.map(item => item.bundle).join(', ')}, or resolve within one readable library with --scope.`, { diagnostics: all.blocked });
       const matches = (item: { id?: string; name?: string }) => name !== undefined ? item.name === name : item.id === id;
       const valid = all.entries.filter(entry => matches(entry.summary));
       const rejected = all.rejected.filter(matches);

@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { getAsset, isSea } from 'node:sea';
 import { createStore, initializeBundle, registerBundle, resolveContext, unregisterBundle } from '../../core/src/index.ts';
-import { OkfError, VERSION, type Store } from '../../core/src/contracts.ts';
+import { OkfError, VERSION, type Diagnostic, type Store } from '../../core/src/contracts.ts';
 import { commands, discover, navigate } from './registry.ts';
 import { GitMemory } from './git.ts';
 import { runProcess } from './process.ts';
@@ -33,7 +33,11 @@ const withStore = <A, E, R>(f: (store: Store) => Effect.Effect<A, E, R>) => Effe
     return { name: value.slice(0, separator), root: resolve(value.slice(separator + 1)) };
   }) : undefined;
   const context = yield* resolveContext({ configPath: Option.getOrUndefined(args.config), explicitBundles });
-  return yield* f(createStore(context));
+  // Warnings follow a successful result on stderr as one JSON line; a failure prints only its error.
+  const warnings: Diagnostic[] = [];
+  const result = yield* f(createStore(context, { onWarning: diagnostic => { warnings.push(diagnostic); } }));
+  if (warnings.length) process.stderr.write(`${JSON.stringify({ version: 1, warnings })}\n`);
+  return result;
 });
 const contextCommand = Command.make('context', {}, () => withStore(store => print(store.context)));
 const initCommand = Command.make('init', { root: Argument.String('root').pipe(Argument.withDefault('.okf')) }, args => initializeBundle(resolve(args.root)).pipe(Effect.flatMap(print)));

@@ -122,17 +122,21 @@ describe('namesakes and unreadable libraries', () => {
     ]);
     const store = storeFor([a.bundle, b.bundle]);
     expect((await run(store.resolveBot({ name: 'a: alpha', bundle: 'a' }))).complete).toBe(true);
-    await fs.writeFile(path.join(b.bundle.root, '.irudd-okf', 'write.lock'), JSON.stringify({ pid: 999999, startedAt: '2026-01-01T00:00:00.000Z' }));
+    // Reads take no lock, so another command's write lock blocks nothing.
+    await fs.mkdir(path.join(b.bundle.root, '.irudd-okf'), { recursive: true });
+    await fs.writeFile(path.join(b.bundle.root, '.irudd-okf', 'write.lock'), JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }));
+    expect((await run(store.resolveBot({ name: 'a: alpha' }))).complete).toBe(true);
+    expect((await run(store.botCatalog())).diagnostics).toEqual([]);
+    await fs.writeFile(path.join(b.bundle.root, 'memory-history.json'), '{"version":1,');
     expect(await run(store.resolveBot({ name: 'a: beta', bundle: 'a' }))).toMatchObject({ complete: true, diagnostics: [] });
     const alpha = await run(store.resolveBot({ name: 'a: alpha', bundle: 'a' }));
     expect(alpha.complete).toBe(false);
-    expect(alpha.diagnostics.map(item => [item.code, item.message.includes('LOCKED')])).toEqual([['BOT_COLLABORATOR_UNAVAILABLE', true], ['BOT_MEMORY_BUNDLE_UNAVAILABLE', true]]);
+    expect(alpha.diagnostics.map(item => [item.code, item.message.includes('INVALID_MEMORY_HISTORY')])).toEqual([['BOT_COLLABORATOR_UNAVAILABLE', true], ['BOT_MEMORY_BUNDLE_UNAVAILABLE', true]]);
     const catalog = await run(store.botCatalog());
     expect(catalog.bots.map(item => item.id)).toEqual(['alpha', 'beta']);
-    expect(catalog.diagnostics).toMatchObject([{ code: 'BOT_LIBRARY_LOCKED', bundle: 'b' }]);
-    // A lock is usually another command still running: keep the retryable LOCKED code rather than asking for repair.
-    await expect(run(store.resolveBot({ name: 'a: beta' }))).rejects.toMatchObject({ code: 'LOCKED', details: { diagnostics: [{ code: 'BOT_LIBRARY_LOCKED', bundle: 'b' }] } });
-    await expect(run(store.resolveBot({ id: 'beta' }))).rejects.toMatchObject({ code: 'LOCKED' });
+    expect(catalog.diagnostics).toMatchObject([{ code: 'BOT_LIBRARY_UNREADABLE', bundle: 'b' }]);
+    await expect(run(store.resolveBot({ name: 'a: beta' }))).rejects.toMatchObject({ code: 'BOT_CATALOG_INCOMPLETE', details: { diagnostics: [{ code: 'BOT_LIBRARY_UNREADABLE', bundle: 'b' }] } });
+    await expect(run(store.resolveBot({ id: 'beta' }))).rejects.toMatchObject({ code: 'BOT_CATALOG_INCOMPLETE' });
   });
 
   it('blocks unscoped resolution on invalid or unsupported catalogs and reports ambiguous ids', async () => {

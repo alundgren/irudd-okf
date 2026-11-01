@@ -74,17 +74,23 @@ export async function guarded(bundle: Bundle, input: string, create = false): Pr
   let current = root;
   for (let i = 0; i < parts.length; i++) {
     current = path.join(current, parts[i]);
+    // Readers take no lock, so a writer's atomic replace can publish a new file under this name mid-check, and Windows
+    // can fail realpath briefly while it does. Both are checked again a few times; links and aliases are never retried.
+    for (let attempt = 1; ; attempt++) {
     try {
       const info = await fs.lstat(current);
       if (info.isSymbolicLink()) throw new OkfError('UNSAFE_PATH', 'Symbolic links are not supported inside bundles.', { path: input });
       if (process.platform === 'win32') {
         const actual = await fs.realpath(current);
         const checked = await fs.lstat(current);
+        if (!checked.isSymbolicLink() && checked.isFile() && info.isFile() && (checked.dev !== info.dev || checked.ino !== info.ino) && attempt < 5) continue;
         if (checked.isSymbolicLink() || checked.dev !== info.dev || checked.ino !== info.ino) throw new OkfError('UNSAFE_PATH', 'A bundle component changed during validation.', { path: input });
         requireCanonicalComponent(current, actual);
       }
       if (i < parts.length - 1 && !info.isDirectory()) throw new OkfError('UNSAFE_PATH', 'A parent path is not a directory.', { path: input });
+      break;
     } catch (error) {
+      if (process.platform === 'win32' && attempt < 5 && ['EPERM', 'EBADF', 'EBUSY'].includes((error as NodeJS.ErrnoException).code ?? '')) { await new Promise(resolve => setTimeout(resolve, 10)); continue; }
       if (!absent(error) || !create) throw error;
       // Each new parent is created separately so a concurrent link cannot redirect traversal.
       if (i < parts.length - 1) {
@@ -92,6 +98,8 @@ export async function guarded(bundle: Bundle, input: string, create = false): Pr
         const info = await fs.lstat(current);
         if (!info.isDirectory() || info.isSymbolicLink()) throw new OkfError('UNSAFE_PATH', 'Unsafe parent directory.', { path: input });
       }
+      break;
+    }
     }
   }
   return current;
@@ -99,9 +107,11 @@ export async function guarded(bundle: Bundle, input: string, create = false): Pr
 export async function scan(bundle: Bundle): Promise<Array<{ path: string; fingerprint: string }>> {
   const candidates: string[] = [];
   const root = await canonicalDirectory(bundle.root);
+  // Readers take no lock, so a concurrent library write can remove a file or directory during the scan; it is simply absent.
   async function visit(directory: string, prefix: string) {
-    if (prefix) await guarded(bundle, prefix.slice(0, -1));
-    const entries = await fs.readdir(directory, { withFileTypes: true });
+    let entries;
+    try { if (prefix) await guarded(bundle, prefix.slice(0, -1)); entries = await fs.readdir(directory, { withFileTypes: true }); }
+    catch (error) { if (prefix && absent(error)) return; throw error; }
     await Promise.all(entries.map(async entry => {
       if (entry.name === '.irudd-okf' || entry.name === '.git' || entry.isSymbolicLink()) return;
       const relative = prefix + entry.name;
@@ -117,12 +127,13 @@ export async function scan(bundle: Bundle): Promise<Array<{ path: string; finger
     while (cursor < candidates.length) {
       const index = cursor++;
       const relative = candidates[index];
-      const info = await fs.lstat(path.join(root, relative), { bigint: true });
+      let info;
+      try { info = await fs.lstat(path.join(root, relative), { bigint: true }); } catch (error) { if (absent(error)) continue; throw error; }
       if (!info.isFile() || info.isSymbolicLink()) throw new OkfError('CONFLICT', 'A file changed while the bundle was scanned.', { path: relative });
       result[index] = { path: relative, fingerprint: `${info.dev}:${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}` };
     }
   }));
-  return result;
+  return result.filter(item => item !== undefined);
 }
 export async function withLock<A>(root: string, run: () => Promise<A>): Promise<A> {
   const folder = path.join(await canonicalDirectory(root), '.irudd-okf');
@@ -139,6 +150,36 @@ export async function withLock<A>(root: string, run: () => Promise<A>): Promise<
   try { await handle.writeFile(JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() })); return await run(); }
   finally { await handle.close(); await fs.unlink(lock); }
 }
+// Read-only view of the write lock for readers, which never create or remove it.
+// running: a live process owns it; stopped or unknown: a writer ended without releasing it.
+// A writer creates the lock and then records its process ID, so a lock without a readable ID is usually a writer
+// still starting; it counts as unknown only if it stays that way.
+export async function lockOwner(root: string, attempts = 5): Promise<{ state: 'none' | 'running' | 'stopped' | 'unknown'; pid?: number }> {
+  for (let attempt = 1; ; attempt++) {
+    let raw: string;
+    try { raw = await fs.readFile(path.join(root, '.irudd-okf', 'write.lock'), 'utf8'); } catch (error) { if (absent(error)) return { state: 'none' }; raw = ''; }
+    let owner: { pid?: unknown } = {};
+    try { owner = JSON.parse(raw) ?? {}; } catch { /* still being written */ }
+    if (typeof owner.pid === 'number' && Number.isSafeInteger(owner.pid) && owner.pid > 0) {
+      try { process.kill(owner.pid, 0); return { state: 'running', pid: owner.pid }; }
+      catch (error) { return { state: (error as NodeJS.ErrnoException).code === 'ESRCH' ? 'stopped' : 'running', pid: owner.pid }; }
+    }
+    if (attempt >= attempts) return { state: 'unknown' };
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+}
+// Windows refuses to replace or link over a file while another process has it open. Readers take no lock and
+// hold files only briefly, so a writer retries these sharing errors for a bounded time instead of failing.
+export async function settled<A>(run: () => Promise<A>, platform: NodeJS.Platform = process.platform, budget = 10_000): Promise<A> {
+  const started = Date.now();
+  for (let attempt = 0; ; attempt++) {
+    try { return await run(); }
+    catch (error) {
+      if (platform !== 'win32' || !['EPERM', 'EACCES', 'EBUSY'].includes((error as NodeJS.ErrnoException).code ?? '') || Date.now() - started > budget) throw error;
+      await new Promise(resolve => setTimeout(resolve, Math.min(100, 2 ** attempt)));
+    }
+  }
+}
 export async function recovery(root: string, raw: string): Promise<string> {
   const directory = path.join(await canonicalDirectory(root), '.irudd-okf', 'recovery');
   await fs.mkdir(directory, { recursive: true });
@@ -153,7 +194,7 @@ export async function atomicReplace(file: string, raw: string, mode = 0o600, bef
   try {
     try { await handle.writeFile(raw); await handle.chmod(mode); await handle.sync(); } finally { await handle.close(); }
     await beforePublish?.();
-    await fs.rename(temporary, file);
+    await settled(() => fs.rename(temporary, file));
   } finally { await fs.unlink(temporary).catch(error => { if (!absent(error)) throw error; }); }
 }
 export async function atomicCreate(file: string, raw: string, beforePublish?: () => Promise<void>): Promise<void> {
@@ -163,7 +204,7 @@ export async function atomicCreate(file: string, raw: string, beforePublish?: ()
     try { await handle.writeFile(raw); await handle.sync(); } finally { await handle.close(); }
     await beforePublish?.();
     // A hard link publishes complete bytes and fails if another writer already owns the destination.
-    await fs.link(temporary, file);
+    await settled(() => fs.link(temporary, file));
   } finally { await fs.unlink(temporary).catch(error => { if (!absent(error)) throw error; }); }
 }
 

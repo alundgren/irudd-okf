@@ -1,8 +1,9 @@
 import * as fs from 'node:fs/promises';
+import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { Applicability, Bundle, BundleInspection, ChangeProposal, ChangeRecord, ChangeRequest, ChangeReview, Concept, MemoryActor, MemoryContext, RecallSelection, SourceRevision, Store, StoreOptions, MaintenancePreview } from './contracts.ts';
 import { BOT_CATALOG_PATH, BOT_CATALOG_TYPE, BOT_DEFINITION_TYPE, OkfError, SUPPORTED_FORMAT_VERSION, VERSION } from './contracts.ts';
-import { absent, atomicCreate, atomicReplace, canonicalDirectory, cleanPath, guarded, hash, operation, readRaw, scan, withLock } from './files.ts';
+import { absent, atomicCreate, atomicReplace, canonicalDirectory, cleanPath, guarded, hash, lockOwner, operation, readRaw, scan, settled, withLock } from './files.ts';
 import { parseConcept, reserved, resolveLink } from './parser.ts';
 import { canonicalJson, patchMetadata, record, metadataLinks } from './memory.ts';
 import { ChangeSchema, ChangeReviewSchema, ChangeUndoSchema, decode, MigrationSchema, ApplySchema } from './schemas.ts';
@@ -62,11 +63,19 @@ export async function assertLibraryWrite(bundle: Bundle): Promise<boolean> {
 async function requireLibrary(bundle: Bundle): Promise<void> {
   if (!await assertLibraryWrite(bundle)) throw new OkfError('MIGRATION_REQUIRED', 'Run migration guide for this installed CLI before library operations.', { inspection: await inspectLibrary(bundle) });
 }
-async function readHistory(bundle: Bundle): Promise<History> {
-  const raw = await current(bundle, HISTORY_PATH);
-  if (raw === null) throw new OkfError('INVALID_MEMORY_HISTORY', 'Portable revision history is missing. Restore it with the bundle files.');
-  let history: History;
-  try { history = JSON.parse(raw); } catch { throw new OkfError('INVALID_MEMORY_HISTORY', 'Portable revision history cannot be parsed. Preserve it for recovery.'); }
+// Library writes replace history atomically, so a reader without the lock sees either the old or the new file.
+// A tool that rewrites it in place, such as a sync client, can expose a partial file briefly, so parsing is retried.
+async function readHistory(bundle: Bundle): Promise<History> { return (await readHistoryText(bundle)).history; }
+// The exact bytes let a reader confirm that no write changed history while it read other files.
+async function readHistoryText(bundle: Bundle): Promise<{ raw: string; history: History }> {
+  let history: History | undefined, raw: string | null = null;
+  for (let attempt = 0; attempt < 3 && history === undefined; attempt++) {
+    if (attempt) await new Promise(resolve => setTimeout(resolve, 25 * attempt));
+    raw = await settled(() => current(bundle, HISTORY_PATH));
+    if (raw === null) throw new OkfError('INVALID_MEMORY_HISTORY', 'Portable revision history is missing. Restore it with the bundle files.');
+    try { history = JSON.parse(raw); } catch { /* retried, then reported below */ }
+  }
+  if (history === undefined) throw new OkfError('INVALID_MEMORY_HISTORY', 'Portable revision history cannot be parsed. Preserve it for recovery.');
   if (history?.version !== 1 || !Array.isArray(history.proposals) || !Array.isArray(history.decisions)) throw new OkfError('INVALID_MEMORY_HISTORY', 'Portable revision history has invalid metadata.');
   const ids = new Set<string>();
   for (const proposal of history.proposals) {
@@ -75,7 +84,7 @@ async function readHistory(bundle: Bundle): Promise<History> {
   }
   for (const event of history.decisions) if (!ids.has(event.id) || event.review?.revisionHash !== history.proposals.find(item => item.id === event.id)?.revisionHash || (!['accept', 'reject'].includes(event.review?.decision) || !['agent','human'].includes(event.review?.actor?.type) || !nonempty(event.review?.actor?.id) || !nonempty(event.review?.reason) || !Array.isArray(event.review?.sources))) throw new OkfError('INVALID_MEMORY_HISTORY', 'A decision references an unknown or different proposal revision.');
   if(history.publication && (!ids.has(history.publication.id) || !Object.hasOwn(history.publication,'expectedHash')))throw new OkfError('INVALID_MEMORY_HISTORY','Publication intent must identify a retained proposal and expected preimage.');
-  return history;
+  return { raw: raw!, history };
 }
 async function persist(bundle: Bundle, history: History): Promise<void> { await atomicReplace(await guarded(bundle, HISTORY_PATH), JSON.stringify(history, null, 2) + '\n'); }
 async function publish(bundle: Bundle, file: string, raw: string | null, expectedHash: string | null): Promise<void> {
@@ -83,7 +92,7 @@ async function publish(bundle: Bundle, file: string, raw: string | null, expecte
   if ((actual === null ? null : hash(actual)) !== expectedHash) throw new OkfError('CONFLICT', 'Current file differs from the observed revision.', { path: file, expectedHash, actualHash: actual === null ? null : hash(actual) });
   const destination = await guarded(bundle, file, true);
   const check = async () => { const value = await current(bundle, file); if ((value === null ? null : hash(value)) !== expectedHash) throw new OkfError('CONFLICT', 'File changed before publication.', { path: file }); };
-  if (raw === null) { if (actual !== null) { await check(); await fs.unlink(destination); } }
+  if (raw === null) { if (actual !== null) { await check(); await settled(() => fs.unlink(destination)); } }
   else if (actual === null) await atomicCreate(destination, raw, check);
   else await atomicReplace(destination, raw, (await fs.stat(destination)).mode & 0o777, check);
 }
@@ -153,32 +162,130 @@ function humanRequired(before: string | null, after: string | null, bundle: stri
   if (old.malformed || next.malformed || canonicalJson(prior.applicability) !== canonicalJson(updated.applicability)) return true;
   return (prior.kind === 'procedural' || updated.kind === 'procedural') && procedureChanged(old, next);
 }
-function makeProposal(bundle: Bundle, request: ChangeRequest, before: string | null, sources: SourceRevision[]): ChangeProposal {
-  const payload: Omit<ChangeProposal, 'revisionHash'> = { version: 1, id: randomUUID(), bundle: bundle.name, path: request.path, action: request.raw === null ? 'delete' : before === null ? 'create' : 'update', before: bytes(before), after: bytes(request.raw), actor: request.actor, reason: request.reason, createdAt: new Date().toISOString(), sources, humanRequired: humanRequired(before, request.raw, bundle.name, request.path), ...(request.requestId ? { requestId: request.requestId, requestHash: hash(canonicalJson({...request,authorizePersonal:undefined,sources:request.sources ?? []})), expectedHash:request.expectedHash } : {}) };
+function makeProposal(bundle: Bundle, request: ChangeRequest, before: string | null, sources: SourceRevision[], fixed: { id: string; createdAt: string } = { id: randomUUID(), createdAt: new Date().toISOString() }): ChangeProposal {
+  const payload: Omit<ChangeProposal, 'revisionHash'> = { version: 1, id: fixed.id, bundle: bundle.name, path: request.path, action: request.raw === null ? 'delete' : before === null ? 'create' : 'update', before: bytes(before), after: bytes(request.raw), actor: request.actor, reason: request.reason, createdAt: fixed.createdAt, sources, humanRequired: humanRequired(before, request.raw, bundle.name, request.path), ...(request.requestId ? { requestId: request.requestId, requestHash: hash(canonicalJson({...request,authorizePersonal:undefined,sources:request.sources ?? []})), expectedHash:request.expectedHash } : {}) };
   return { ...payload, revisionHash: proposalDigest(payload) };
 }
+// A UUID-shaped identity derived from the observation, so every command that sees the same outside edit names it alike.
+function observationId(parts: Array<string | null>): string {
+  const digest = hash(canonicalJson(['external-edit', ...parts]));
+  return `${digest.slice(0, 8)}-${digest.slice(8, 12)}-5${digest.slice(13, 16)}-${(8 | parseInt(digest[16], 16) & 3).toString(16)}${digest.slice(17, 20)}-${digest.slice(20, 32)}`;
+}
+// When an outside edit happened is unknown, so its record carries a time every command derives alike: a changed
+// file's modification time, never earlier than the path's latest proposal, and for a removal that proposal's time.
+// A change to a sibling file or a copy that preserves modification times cannot alter or misorder the record.
+async function observedAt(bundle: Bundle, file: string, latest: ChangeProposal | undefined, present: boolean): Promise<string> {
+  let modified: string | undefined;
+  if (present) { try { modified = (await fs.lstat(path.join(await canonicalDirectory(bundle.root), ...file.split('/')))).mtime.toISOString(); } catch (error) { if (!absent(error)) throw error; } }
+  if (!modified) return latest?.createdAt ?? new Date(0).toISOString();
+  return latest && latest.createdAt > modified ? latest.createdAt : modified;
+}
+const pathsOf = (files: string[], history: History) => [...new Set([...files, ...history.proposals.map(item => item.path)])];
+// Outside edits are derived from history and the current files alone, with a stable ID and timestamp. Reads show them
+// without writing; the next write records exactly the same proposals while it holds the lock. observed overrides
+// history.observed for an unfinished publication as finishing it would; skip names a path that publication will
+// still replace.
+async function externalEdit(bundle: Bundle, history: History, acceptedByPath: Map<string, ChangeProposal>, file: string, observed?: Record<string, string | null>, skip?: string): Promise<ChangeProposal | null> {
+  if (file === skip || isControl(file) && !history.proposals.some(item => item.path === file)) return null;
+  const latest = history.proposals.findLast(item => item.path === file);
+  const raw = await current(bundle, file), actual = raw === null ? null : hash(raw);
+  const known = observed && file in observed ? observed : history.observed;
+  const baseline = known && file in known ? known[file] : latest?.after?.hash ?? null;
+  if (baseline === actual) return null;
+  const request: ChangeRequest = { bundle: bundle.name, path: file, raw, expectedHash: latest?.after?.hash ?? null, actor: { type: 'agent', id: 'external-edit' }, reason: 'Detected file mutation outside the library commands.' };
+  const proposal = makeProposal(bundle, request, acceptedByPath.get(file)?.after?.raw ?? latest?.after?.raw ?? null, [], { id: observationId([file, latest?.id ?? null, baseline, actual]), createdAt: await observedAt(bundle, file, latest, raw !== null) });
+  proposal.humanRequired = true; proposal.revisionHash = proposalDigest(proposal);
+  return proposal;
+}
+async function externalEdits(bundle: Bundle, history: History): Promise<ChangeProposal[]> {
+  const acceptedByPath = accepted(history), output: ChangeProposal[] = [];
+  for (const file of pathsOf((await scan(bundle)).map(item => item.path), history)) { const edit = await externalEdit(bundle, history, acceptedByPath, file); if (edit) output.push(edit); }
+  return output;
+}
+// What a library write can change about one path: its latest proposal, observed bytes, accepted revision and publication intent.
+function signatures(history: History): Map<string, string> {
+  const acceptedByPath = accepted(history), latest = new Map(history.proposals.map(item => [item.path, item.id]));
+  const intentPath = history.publication ? history.proposals.find(item => item.id === history.publication!.id)?.path : undefined;
+  return new Map([...new Set([...latest.keys(), ...Object.keys(history.observed ?? {})])].map(file => [file, canonicalJson([latest.get(file) ?? null, history.observed && file in history.observed ? history.observed[file] : 'unobserved', acceptedByPath.get(file)?.id ?? null, file === intentPath ? history.publication : null])]));
+}
+function changedPaths(before: History, after: History): string[] {
+  const old = signatures(before), next = signatures(after);
+  return [...new Set([...old.keys(), ...next.keys()])].filter(file => old.get(file) !== next.get(file));
+}
+function recordExternal(history: History, proposals: ChangeProposal[]): void {
+  for (const proposal of proposals) { history.proposals.push(proposal); history.observed ??= {}; history.observed[proposal.path] = proposal.after?.hash ?? null; }
+}
+// Write operations hold the lock: they finish an interrupted publication, then record outside edits.
 async function detectExternal(bundle: Bundle, history: History): Promise<void> {
   await finishPublication(bundle, history);
-  const files = await scan(bundle), paths = new Set([...files.map(item => item.path), ...history.proposals.map(item => item.path)]);
-  let changed = false;
-  const acceptedByPath=accepted(history);
-  for (const file of paths) {
-    if (isControl(file) && !history.proposals.some(item => item.path === file)) continue;
-    const latest = history.proposals.findLast(item => item.path === file);
-    const raw = await current(bundle, file);
-    if ((history.observed && file in history.observed ? history.observed[file] : latest?.after?.hash ?? null) === (raw === null ? null : hash(raw))) continue;
-    const request: ChangeRequest = { bundle: bundle.name, path: file, raw, expectedHash: latest?.after?.hash ?? null, actor: { type: 'agent', id: 'external-edit' }, reason: 'Detected file mutation outside the library commands.' };
-    const proposal = makeProposal(bundle, request, acceptedByPath.get(file)?.after?.raw ?? latest?.after?.raw ?? null, []);
-    proposal.humanRequired = true; proposal.revisionHash = proposalDigest(proposal);
-    history.proposals.push(proposal); history.observed ??= {}; history.observed[file] = raw === null ? null : hash(raw); changed = true;
-  }
-  if (changed) await persist(bundle, history);
+  const found = await externalEdits(bundle, history);
+  recordExternal(history, found);
+  if (found.length) await persist(bundle, history);
+}
+function publicationState(history: History, proposal: ChangeProposal, actual: string | null): 'untouched' | 'applied' | 'externally-changed' {
+  const intent = history.publication!, target = intent.raw !== undefined ? intent.raw : proposal.after?.raw ?? null;
+  return actual === intent.expectedHash ? 'untouched' : actual === (target === null ? null : hash(target)) ? 'applied' : 'externally-changed';
 }
 export function createLibrary(context: MemoryContext, options: StoreOptions = {}) {
   const select = (name: string) => { const bundle = context.bundles.find(item => item.name === name); if (!bundle) throw new OkfError('BUNDLE_NOT_FOUND', 'Select an active bundle.', { bundle: name }); return bundle; };
   const writable = (bundle: Bundle, request: { authorizePersonal?: boolean }) => { if (!bundle.writable) throw new OkfError('READ_ONLY', 'This bundle is read-only.'); if (bundle.kind === 'personal' && !request.authorizePersonal) throw new OkfError('PERSONAL_AUTHORIZATION', 'Personal changes require explicit authorization.'); };
-  const load = async (bundle: Bundle) => { await requireLibrary(bundle); return withLock(bundle.root, async () => { const history = await readHistory(bundle); await detectExternal(bundle, history); return history; }); };
-  const sourcesFor = async (bundle: Bundle, file: string, raw: string | null, requested: SourceRevision[] = [], refreshHistorical = false): Promise<SourceRevision[]> => {
+  const warned = new Set<string>();
+  // An unfinished publication with the state of its file and of the write lock.
+  const inspectIntent = async (bundle: Bundle, history: History) => {
+    const intent = history.publication;
+    if (!intent) return null;
+    const proposal = history.proposals.find(item => item.id === intent.id)!, raw = await current(bundle, proposal.path), target = intent.raw !== undefined ? intent.raw : proposal.after?.raw ?? null;
+    return { proposal, state: publicationState(history, proposal, raw === null ? null : hash(raw)), writer: (await lockOwner(await canonicalDirectory(bundle.root))).state, target: target === null ? null : hash(target) };
+  };
+  // Reads take no lock and write nothing. Accepted content comes from the history snapshot, which a decision updates
+  // atomically before any Markdown publication, so an unfinished publication never changes an accepted result; it is
+  // reported, and only a write completes it. With outside, the snapshot also shows outside edits as the next write would
+  // record them. That classification needs the working file of an unfinished publication to hold its old or new bytes;
+  // other bytes are reported as PUBLICATION_INCOMPLETE, because a write would refuse them too until change recover.
+  //
+  // Files and the lock are read after history, and describe that history only if it is unchanged when read again:
+  // every library write changes history before and after it publishes Markdown. Otherwise a write ran meanwhile, and
+  // the paths it touched are evaluated again against the newer history, so a finished write is never reported as
+  // stopped and a just-published file is never mistaken for an outside edit.
+  const snapshot = async (bundle: Bundle, outside: boolean): Promise<History> => {
+    await requireLibrary(bundle);
+    let { raw, history } = await readHistoryText(bundle);
+    if (!history.publication && !outside) return history;
+    let intent: Awaited<ReturnType<typeof inspectIntent>> = null, files: string[] = [], stale: string[] | null = null;
+    const edits = new Map<string, ChangeProposal>();
+    for (let attempt = 0; ; attempt++) {
+      intent = await inspectIntent(bundle, history);
+      if (outside) {
+        const observed = intent ? { [intent.proposal.path]: intent.target } : undefined, skip = intent?.state === 'untouched' ? intent.proposal.path : undefined, acceptedByPath = accepted(history);
+        if (stale === null) files = (await scan(bundle)).map(item => item.path);
+        for (const file of stale ?? pathsOf(files, history)) { const edit = await externalEdit(bundle, history, acceptedByPath, file, observed, skip); if (edit) edits.set(file, edit); else edits.delete(file); }
+      }
+      const again = await readHistoryText(bundle);
+      if (again.raw === raw) break;
+      if (attempt === 50) { if (!outside) return again.history; throw new OkfError('LIBRARY_BUSY', 'Library writes kept changing history while it was read. Retry the command.'); }
+      stale = changedPaths(history, again.history); ({ raw, history } = again);
+      if (!history.publication && !outside) return history;
+    }
+    if (intent && intent.writer !== 'running') {
+      const key = `${bundle.name}
+${intent.proposal.id}
+${intent.state}`;
+      if (!warned.has(key)) {
+        warned.add(key);
+        const next = intent.state === 'externally-changed' ? 'The file now holds other bytes: run change inspect, then change recover, which keeps them as a new pending revision.' : intent.writer === 'none' ? 'The next library write completes it; change inspect shows its state.' : 'A stale write lock remains: run change recover once no writer is running.';
+        options.onWarning?.({ level: 'warning', code: 'PUBLICATION_INCOMPLETE', bundle: bundle.name, path: intent.proposal.path, message: `A library write stopped before publishing change ${intent.proposal.id} to ${intent.proposal.path}. Accepted results are unaffected because they come from portable history. ${next}` });
+      }
+    }
+    if (!outside) return history;
+    if (intent) {
+      if (intent.state === 'externally-changed') throw new OkfError('PUBLICATION_INCOMPLETE', `Change ${intent.proposal.id} was not fully published and ${intent.proposal.path} now holds other bytes, so outside edits cannot be classified. Run change inspect, then change recover once no writer is running; it keeps those bytes as a new pending revision.`, { changeId: intent.proposal.id, path: intent.proposal.path, state: intent.state, writer: intent.writer });
+      history.observed ??= {}; history.observed[intent.proposal.path] = intent.target; delete history.publication;
+    }
+    recordExternal(history, pathsOf(files, history).flatMap(file => edits.get(file) ?? []));
+    return history;
+  };
+  // histories, when given, holds the snapshots a read already loaded, so one result is judged against one history per library.
+  const sourcesFor = async (bundle: Bundle, file: string, raw: string | null, requested: SourceRevision[] = [], refreshHistorical = false, histories?: Map<string, History>): Promise<SourceRevision[]> => {
     const selectedBundles = await Promise.all(context.bundles.map(async item=>({item,inspection:await inspectLibrary(item)})));
     const resolveSource = async (source: {bundle?:string; id?:string; path:string; hash?:string}) => {
       const selected = source.bundle ? selectedBundles.find(item=>item.inspection.id === source.bundle || item.item.name === source.bundle) : selectedBundles.find(item=>item.item.name === bundle.name);
@@ -186,7 +293,7 @@ export function createLibrary(context: MemoryContext, options: StoreOptions = {}
       const sourcePath = cleanPath(source.path);
       let sourceRaw: string | null = null, sourceId: unknown, retainedPath = sourcePath;
       if (selected.inspection.status === 'current') {
-        const history = await readHistory(selected.item);
+        const history = histories?.get(selected.item.name) ?? await readHistory(selected.item); histories?.set(selected.item.name, history);
         const matching = history.proposals.filter(proposal=>proposal.after && (source.id ? record(parseConcept(selected.item.name,proposal.path,proposal.after.raw).metadata.memory).id === source.id : proposal.path === sourcePath) && view(history,proposal).status === 'accepted');
         let revision = matching.at(-1);
         if(source.hash && revision?.after?.hash !== source.hash) {
@@ -308,7 +415,7 @@ export function createLibrary(context: MemoryContext, options: StoreOptions = {}
   };
   const acceptedDocuments = async (bundle: Bundle, selection: RecallSelection): Promise<Concept[]> => {
     if ((await inspectLibrary(bundle)).status !== 'current') return [];
-    const history = await load(bundle);
+    const history = await snapshot(bundle, false), histories = new Map([[bundle.name, history]]);
     const output: Concept[] = [];
     for (const proposal of accepted(history).values()) {
       if (!proposal.after) continue;
@@ -323,7 +430,7 @@ export function createLibrary(context: MemoryContext, options: StoreOptions = {}
         const stale = typeof concept.metadata.stale_after === 'string' && Date.parse(concept.metadata.stale_after) <= (options.now?.() ?? new Date()).getTime();
         if (!selection.includeExcluded && (expired || memory.archived_at || concept.metadata.status === 'deprecated')) continue;
         let dependency: 'valid' | 'changed' | 'unavailable' = 'valid';
-        try { await sourcesFor(bundle, proposal.path, proposal.after.raw, proposal.sources); } catch (error) { dependency = error instanceof OkfError && error.code === 'SOURCE_UNAVAILABLE' ? 'unavailable' : 'changed'; }
+        try { await sourcesFor(bundle, proposal.path, proposal.after.raw, proposal.sources, false, histories); } catch (error) { dependency = error instanceof OkfError && error.code === 'SOURCE_UNAVAILABLE' ? 'unavailable' : 'changed'; }
         if (!selection.includeExcluded && dependency !== 'valid') continue;
         concept.memory = { id: String(memory.id), applicability: scope, revisionHash: proposal.after.hash, kind: memory.kind as 'procedural' | 'semantic' | 'episodic', stage: memory.stage as 'bronze' | 'silver' | 'gold', namespace: 'shared', review: 'approved', verified: false, humanReviewed: human, machineVerified: false, trustTier: human ? 'human-reviewed' : 'machine-confirmed', historicalVerificationEvents: [], freshness: stale ? 'stale' : 'current', archived: false, deprecated: false, contentHash: proposal.after.hash, dependency, eligible: !expired && !memory.archived_at && concept.metadata.status !== 'deprecated' && dependency === 'valid', trust: 'approved', reviewEvents: reviews.map(review => ({ decision: 'approve', actor_type: review.actor.type === 'human' ? 'human' : 'machine', by: review.actor.id, at: review.at, reason: review.reason, content_hash: proposal.after!.hash })), verificationEvents: [], diagnostics: [] };
       }
@@ -340,8 +447,8 @@ export function createLibrary(context: MemoryContext, options: StoreOptions = {}
     await requireLibrary(bundle);const history=await readHistory(bundle),intent=history.publication;
     if(!intent)return null;
     const proposal=history.proposals.find(item=>item.id===intent.id)!;
-    const raw=await current(bundle,proposal.path),actual=raw===null?null:hash(raw),target=intent.raw!==undefined?intent.raw:proposal.after?.raw ?? null;
-    return {id:proposal.id,path:proposal.path,state:actual===intent.expectedHash?'untouched' as const:actual===(target===null?null:hash(target))?'applied' as const:'externally-changed' as const};
+    const raw=await current(bundle,proposal.path);
+    return {id:proposal.id,path:proposal.path,state:publicationState(history,proposal,raw===null?null:hash(raw))};
   };
   const methods: Pick<Store, 'inspectChanges' | 'recoverChanges' | 'inspectBundle' | 'migrationGuide' | 'proposeChange' | 'listChanges' | 'readChange' | 'reviewChange' | 'undoChange' | 'browse'> = {
     inspectChanges: name=>operation(async()=>({version:1,bundle:name,lockRecovered:false,publication:await inspectPublication(select(name))})),
@@ -369,8 +476,8 @@ export function createLibrary(context: MemoryContext, options: StoreOptions = {}
       return { version: 1, inspection, instructions: inspection.status === 'newer' ? ['Install a newer CLI supporting the indicated format. This CLI cannot write it.'] : [`These commands apply to CLI ${VERSION} and bundle format ${SUPPORTED_FORMAT_VERSION}.`, 'Select this bundle explicitly. Write a JSON decisions object keyed by relative note path.', 'Run migration preview BUNDLE --file decisions.json; resolve every question and inspect before/after bytes.', 'Run migration apply --file preview.json. The journal preserves original bytes and supports retry.', 'The format marker is published last. Migrated memories remain pending until an exact revision review.', 'Sync memory-history.json and memory-bundle.json together with Markdown.'], questions, requestExample: { decisions: { 'example.md': { id: 'example-stable-id', kind: 'semantic', stage: 'bronze', applicability: { type: 'repository', id: 'explicit-repository-id' } } } } };
     }),
     proposeChange: request => operation(() => propose(request)),
-    listChanges: (name, status, page = {}) => operation(async () => { if (status !== undefined && !['pending', 'accepted', 'rejected', 'superseded'].includes(status)) throw new OkfError('INVALID_REQUEST', 'Unknown change status.'); const history = await load(select(name)); const changes = history.proposals.map(proposal => view(history, proposal)).filter(item => !status || item.status === status); const limit = Math.max(1, Math.min(100, Math.floor(page.limit ?? 30))), offset = Math.max(0, Math.floor(page.offset ?? 0)); return { version: 1, bundle: name, changes: changes.slice(offset, offset + limit), total: changes.length, limit, offset, truncated: changes.length > offset + limit }; }),
-    readChange: (name, id) => operation(async () => { const history = await load(select(name)); const proposal = history.proposals.find(item => item.id === id); if (!proposal) throw new OkfError('CHANGE_NOT_FOUND', 'The immutable change does not exist.'); return view(history, proposal); }),
+    listChanges: (name, status, page = {}) => operation(async () => { if (status !== undefined && !['pending', 'accepted', 'rejected', 'superseded'].includes(status)) throw new OkfError('INVALID_REQUEST', 'Unknown change status.'); const history = await snapshot(select(name), true); const changes = history.proposals.map(proposal => view(history, proposal)).filter(item => !status || item.status === status); const limit = Math.max(1, Math.min(100, Math.floor(page.limit ?? 30))), offset = Math.max(0, Math.floor(page.offset ?? 0)); return { version: 1, bundle: name, changes: changes.slice(offset, offset + limit), total: changes.length, limit, offset, truncated: changes.length > offset + limit }; }),
+    readChange: (name, id) => operation(async () => { const history = await snapshot(select(name), true); const proposal = history.proposals.find(item => item.id === id); if (!proposal) throw new OkfError('CHANGE_NOT_FOUND', 'The immutable change does not exist.'); return view(history, proposal); }),
     reviewChange: request => operation(async () => {
       request = decode(ChangeReviewSchema, request); identity(request.actor, request.reason);
       if (request.actor.type === 'human' && !request.operator) throw new OkfError('HUMAN_REVIEW_AUTHORIZATION', 'Human review requires deliberate operator acknowledgement.');
@@ -413,7 +520,7 @@ export function createLibrary(context: MemoryContext, options: StoreOptions = {}
     }),
     undoChange: request => operation(async () => {
       request = decode(ChangeUndoSchema, request); const bundle = select(request.bundle); writable(bundle, request);
-      const history = await load(bundle), proposal = history.proposals.find(item => item.id === request.id);
+      const history = await snapshot(bundle, true), proposal = history.proposals.find(item => item.id === request.id);
       if (!proposal || proposal.revisionHash !== request.expectedRevisionHash) throw new OkfError('REVIEW_CONFLICT', 'Undo requires the exact retained change revision.');
       const actual = await current(bundle, proposal.path);
       return propose({ bundle: request.bundle, path: proposal.path, raw: proposal.before?.raw ?? null, expectedHash: actual === null ? null : hash(actual), actor: request.actor, reason: request.reason, requestId: request.requestId, authorizePersonal: request.authorizePersonal });
@@ -434,7 +541,7 @@ export function createLibrary(context: MemoryContext, options: StoreOptions = {}
   };
   // Unreviewed proposals are review material for bot checks, never task guidance.
   const reviewMaterial = async (bundle: Bundle): Promise<ReviewMaterial> => {
-    const history = await load(bundle), latest = new Map<string, ChangeProposal>();
+    const history = await snapshot(bundle, true), latest = new Map<string, ChangeProposal>();
     for (const proposal of history.proposals) latest.set(proposal.path, proposal);
     const pending = [...latest.values()].filter(proposal => view(history, proposal).status === 'pending').map(proposal => ({ id: proposal.id, path: proposal.path, raw: proposal.after?.raw ?? null, hash: proposal.after?.hash ?? null, actor: proposal.actor }));
     // Catalog proposals after the last accepted one that no person decided, including those a later proposal superseded.
@@ -449,7 +556,7 @@ export function createLibrary(context: MemoryContext, options: StoreOptions = {}
     };
     return { pending, openCatalog, identity };
   };
-  return { methods, acceptedDocuments, reviewMaterial, propose, select, writable, load };
+  return { methods, acceptedDocuments, reviewMaterial, propose, select, writable, publicationNotice: (bundle: Bundle) => snapshot(bundle, false).then(() => undefined) };
 }
 
 export async function initialLibraryFiles(name: string, controls: Array<{path: string; raw: string}> = []): Promise<Array<{ path: string; raw: string }>> {
