@@ -278,6 +278,33 @@ The installed command schema describes current request files and results.
 Read the [memory guide](docs/agent-memory.md) for authoring, review, evidence,
 applicability and recovery.
 
+## Named bots
+
+A library can register complete named bots in `bots/catalog.md`. Each accepted
+definition holds its identity, purpose, instructions, collaborators and
+explicit memory targets. Names such as `game1: playtester` are literal.
+
+```sh
+irudd-okf bot list
+irudd-okf bot resolve "game1: playtester"
+```
+
+`bot list` shows names and purposes without memory content. `bot resolve`
+matches the exact name and returns the definition and its targets' current
+accepted memory. Unknown, duplicate and unavailable bots are errors, and broken
+references are reported. The working directory never selects a bot's memory.
+See the [memory guide](docs/agent-memory.md#bot-definitions).
+
+The [bot-creator skill](skills/bot-creator/SKILL.md) lets an ordinary agent
+interview you about a new or changed bot, confirm the brief with you, and then
+propose its definition and catalog entry. It never activates the bot or accepts
+its own proposals. Before a person accepts, `bot check` validates the drafts or
+pending proposals with the same rules `bot resolve` applies:
+
+```sh
+irudd-okf bot check bots --id game1-playtester --file drafts.json
+```
+
 ## Bundle format versions
 
 A portable `memory-bundle.json` identifies the library bundle and its format.

@@ -13,7 +13,7 @@ import { installSkill, skillNames } from './skill.ts';
 import { installInstructions, instructionStatus, removeInstructions } from './instructions.ts';
 import { checkUpgrade, upgrade } from './upgrade.ts';
 import { bindFields, readJson } from './input.ts';
-import { decode, ChangeSchema, ChangeReviewSchema, ChangeUndoSchema, MigrationSchema, PreviewSchema, ProposalSchema, TaskRequestSchema, TemplateSchema } from '../../core/src/schemas.ts';
+import { decode, BotCheckSchema, ChangeSchema, ChangeReviewSchema, ChangeUndoSchema, MigrationSchema, PreviewSchema, ProposalSchema, TaskRequestSchema, TemplateSchema } from '../../core/src/schemas.ts';
 
 const bool = (name: string) => Flag.Boolean(name).pipe(Flag.withDefault(false));
 const opt = (name: string) => Flag.String(name).pipe(Flag.optional);
@@ -109,6 +109,14 @@ const changeCommand = Command.make('change').pipe(Command.withSubcommands([
   }))),
 ]));
 const browseCommand = Command.make('browse', { allApplicability:bool('all-applicability'), bundle: Argument.String('bundle'), path: opt('path'), limit: Flag.Int('limit').pipe(Flag.withDefault(30)), offset: Flag.Int('offset').pipe(Flag.withDefault(0)), machine: opt('machine'), repository: opt('repository') }, args => withStore(store => store.browse({allApplicability:args.allApplicability,bundle: args.bundle, path: Option.getOrUndefined(args.path), limit: args.limit, offset: args.offset, machine: Option.getOrUndefined(args.machine), repository: Option.getOrUndefined(args.repository)}).pipe(Effect.flatMap(print))));
+const botCommand = Command.make('bot').pipe(Command.withSubcommands([
+  Command.make('list', { scope }, args => withStore(store => store.botCatalog({ bundle: Option.getOrUndefined(args.scope) }).pipe(Effect.flatMap(print)))),
+  Command.make('check', { bundle: Argument.String('bundle'), id: opt('id'), file: opt('file') }, args => withStore(store => Effect.gen(function* () {
+    const data = Option.isSome(args.file) ? yield* readJson(args.file.value) : {};
+    yield* store.checkBots(decode(BotCheckSchema, bindFields(data, { bundle: args.bundle, ...(Option.isSome(args.id) ? { id: args.id.value } : {}) }))).pipe(Effect.flatMap(print));
+  }))),
+  Command.make('resolve', { name: Argument.String('name').pipe(Argument.optional), id: opt('id'), scope }, args => withStore(store => store.resolveBot({ ...(Option.isSome(args.name) ? { name: args.name.value } : {}), ...(Option.isSome(args.id) ? { id: args.id.value } : {}), bundle: Option.getOrUndefined(args.scope) }).pipe(Effect.flatMap(print)))),
+]));
 const gitCommand = Command.make('git').pipe(Command.withSubcommands([
   Command.make('status', { bundle: Argument.String('bundle') }, args => withStore(store => new GitMemory(store.context).status(args.bundle).pipe(Effect.flatMap(print)))),
   Command.make('preview', { bundle: Argument.String('bundle'), paths: Flag.String('paths'), base: opt('base') }, args => withStore(store => new GitMemory(store.context).preview(args.bundle, args.paths.split(','), Option.getOrUndefined(args.base)).pipe(Effect.flatMap(print)))),
@@ -136,7 +144,7 @@ const doctorCommand = Command.make('doctor', {}, () => withStore(store => Effect
   const gh = yield* runProcess('gh', ['--version'], store.context.cwd).pipe(Effect.catch(() => Effect.succeed(null)));
   yield* print({ version: 1, productVersion: VERSION, node: process.version, nativeExecutable: isSea(), context: store.context, git: git?.exitCode === 0, gh: gh?.exitCode === 0, validation: yield* store.validate() });
 })));
-export const app = root.pipe(Command.withSubcommands([contextCommand, initCommand, bundleCommand, searchCommand, listCommand, readCommand, indexCommand, writeCommand, deleteCommand, renameCommand, validateCommand(false), validateCommand(true), graphCommand, profileCommand, namespacesCommand, bootstrapCommand, templateCommand, reviewCommand, verifyCommand, taskCommand, lifecycleCommand, auditCommand, maintenanceCommand, migrationCommand, changeCommand, browseCommand, gitCommand, cliCommand, skillCommand, instructionsCommand, upgradeCommand, licensesCommand, doctorCommand]));
+export const app = root.pipe(Command.withSubcommands([contextCommand, initCommand, bundleCommand, searchCommand, listCommand, readCommand, indexCommand, writeCommand, deleteCommand, renameCommand, validateCommand(false), validateCommand(true), graphCommand, profileCommand, namespacesCommand, bootstrapCommand, templateCommand, reviewCommand, verifyCommand, taskCommand, lifecycleCommand, auditCommand, maintenanceCommand, migrationCommand, changeCommand, browseCommand, botCommand, gitCommand, cliCommand, skillCommand, instructionsCommand, upgradeCommand, licensesCommand, doctorCommand]));
 export const renderError = (error: unknown) => Effect.sync(() => {
   if (CliError.isCliError(error) && error._tag === 'ShowHelp') {
     if (error.errors.length === 0) return;
