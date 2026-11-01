@@ -16,6 +16,25 @@ nothing until the user confirms the brief, and then only through tracked
 proposals that a person accepts. Read [definition](references/definition.md)
 before writing files.
 
+## How to talk to the user
+
+The interview is about what the bot should do, not how it is stored. Every
+message must be short and easy to answer.
+
+- Lead with the questions. Do not open with a report of what you looked up.
+  Mention a found fact only when it changes a decision, in one plain clause
+  ("Your AGENTS.md already describes a coordinator role, so I based this on
+  it").
+- Never show storage plumbing: library or bundle IDs, paths, file names,
+  catalog or index files, policy rows, applicability, hashes, commands or
+  stable bot IDs. Decide them yourself from the facts and the user's
+  instructions. If a storage choice really needs the user, ask it in plain
+  words ("only for you, or shared with the project?").
+- Ask at most three questions per round. Each question is one to three short
+  lines: the question, then your recommendation in one sentence. Use an example
+  only when the question is otherwise abstract.
+- Use the user's words for their project and avoid internal jargon.
+
 ## 1. Find the facts first
 
 Collect what is already known before asking anything:
@@ -32,27 +51,28 @@ Collect what is already known before asking anything:
 - For an edit, the accepted definition and any pending change to it
   (`change list BUNDLE --status pending`, `read --current`).
 
-Never ask the user for paths, bundle IDs, repository IDs, existing bot IDs or
-file layout. Ask only for decisions. When you state a known fact in a question,
-say where it came from. If the request could also mean a one-off script or
-test rather than a persistent bot, settle that first.
+Keep these facts to yourself and use them to skip questions and to make
+recommendations. Never ask the user for paths, bundle IDs, repository IDs,
+existing bot IDs or file layout. If the request could also mean a one-off
+script or test rather than a persistent bot, settle that first.
 
 ## 2. Interview in rounds
 
 Treat the bot as a decision tree. The frontier is every decision whose
-prerequisites are already settled. Ask the whole frontier in one round, number
-each question, give your recommended answer, and word it so that "yes" accepts
-the recommendation. Then wait. Recompute the frontier from the answers; a
-question that depends on another open question belongs to a later round. This
-is the same method as a grilling session.
+prerequisites are already settled. Ask the most consequential frontier
+questions first, at most three per round. Number them, give your recommended
+answer, and word each so that "yes" accepts the recommendation. Then wait.
+Recompute the frontier from the answers; a question that depends on another
+open question belongs to a later round. This is the same method as a grilling
+session, kept brief.
 
 Cover every branch, roughly in this dependency order:
 
 1. **Purpose and results.** What the bot is for, one concrete example of a good
    result and one of a bad result.
-2. **Name and library.** The literal visible name and which library holds it.
-   The library decides who can see and use the bot, which collaborators it can
-   name without a bundle ID, and where its memory can live.
+2. **Name.** The literal visible name. Choose the library yourself from the
+   user's instructions and the facts; ask only if it is genuinely unclear, and
+   then in plain words about who should be able to use the bot.
 3. **Responsibilities and boundaries.** What it owns, what it must not do, and
    who decides what. Settle decision rights explicitly.
 4. **Collaborators and handoffs.** Which existing bots it works with (by their
@@ -60,8 +80,9 @@ Cover every branch, roughly in this dependency order:
    and who owns it.
 5. **Knowledge and authority.** What it reads, and which source wins when user
    decisions, accepted notes, tested facts and suggestions disagree.
-6. **Memory.** Its own notes and shared areas. You propose exact destinations;
-   the user decides when it reads, refreshes and proposes writes.
+6. **Memory.** What the bot should remember and share, and when it reads,
+   refreshes and proposes notes. You choose the exact destinations without
+   asking.
 7. **Corrections and conflicts.** What it does when corrected, how it treats its
    own pending proposals (never as accepted), and what happens on conflict.
 8. **Tools and workspace.** Required tools, environments and isolation, such as
@@ -91,17 +112,18 @@ words, and of open ones.
 
 ## 4. Confirm the brief
 
-Present a concise brief: name, library, purpose, good and bad results,
+Present a short brief in plain words: name, purpose, good and bad results,
 responsibilities and boundaries, decision rights, collaborators and handoffs,
-knowledge and authority, memory destinations with read, refresh and write
-rules, correction behavior, tools, stance and the trial. Follow it with:
+what it reads and which source wins, what it remembers and when, correction
+behavior, tools, stance and the trial. Follow it with:
 
 - **Open decisions**: anything still unresolved. While this list has a
   consequential item, the draft is unfinished and nothing is proposed.
-- **What will be proposed**: each file and change by path, any initial notes
-  with their sources, and any reciprocal edit to another bot as its own item.
-  Removing or re-pointing another bot's catalog entry is also its own item, and
-  only when the user asked for it.
+- **What will be saved**: one plain line per change ("the bot itself", "a
+  starting note with the project direction from AGENTS.md"), not paths. Any
+  change to another bot, including removing or re-pointing its catalog entry,
+  is its own line and only when the user asked for it. Give paths only if the
+  user asks.
 
 Ask the user to confirm the brief and the proposal list explicitly. If they
 stop early, give them the brief and open decisions and persist nothing.
@@ -132,15 +154,18 @@ the check reports `ready: true`.
 ## 6. Propose
 
 Submit each file with `change propose` under your actual agent identity and a
-reason that cites the confirmed brief. Propose a change to another bot only
+reason that cites the confirmed brief. Storage details the user never needed to
+decide, such as a new repository mapping, belong in these proposals; mention
+them in one plain line, not as questions. Propose a change to another bot only
 when the user confirmed that exact change as a separate item. Run `bot check`
 again to confirm that the pending set is ready, this time with a request file
 that holds only your `confirmedRegistrationChanges` (no file if there are none;
-without them a confirmed change reports as an error again). Then report:
+without them a confirmed change reports as an error again). Then report briefly, in plain words:
 
-- each change ID and path, and that a person must accept them (in Scope, or
-  `change review` with an operator decision),
-- what `requires` lists as needing acceptance together,
+- that the proposals are waiting for the user's acceptance, and how to accept
+  them (in Scope, or `change review` with an operator decision), with the change
+  IDs listed last for reference,
+- which changes must be accepted together (from `requires`),
 - the trial to run after acceptance by activating the bot in a fresh thread.
 
 Do not accept or reject the proposals, and do not describe the bot as
