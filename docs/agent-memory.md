@@ -208,3 +208,50 @@ revision.
 
 A bot's memory proposals keep the actual run as actor `{type, id}`. Record the
 persona separately in the note, for example `persona: {bot: game1-playtester}`.
+
+### Creating and checking bots
+
+The `bot-creator` skill interviews the user, confirms a brief with them and then
+proposes the definition, catalog entry and any sourced initial notes under the
+creator's own agent identity. It stores the bot's working instructions, not the
+interview. While a consequential decision is open, it proposes nothing. It
+changes another bot only through a separate proposal the user confirmed.
+
+`bot check BUNDLE [--id ID] [--file REQUEST.json]` validates a bot before a
+person accepts it. The optional request is `{"drafts": [{"path", "raw"}],
+"confirmedRegistrationChanges": [{"id", "path"}]}`. The check evaluates that library as if
+its pending proposals and the drafts were accepted, then applies the resolver's
+rules: required fields, procedural kind, catalog registration, ID match, unique
+names across the selected libraries, collaborators and memory targets. A target
+note must have an accepted or candidate revision; an empty target directory is
+a warning. It also applies the identity rules acceptance enforces, reporting
+`MEMORY_ID_CONFLICT` or `DUPLICATE_MEMORY_ID` for a candidate that review would
+refuse.
+
+When a catalog candidate is present, the check compares it with the accepted
+catalog and with every catalog proposal since then that no person decided,
+including superseded ones. Each registration it removes or points elsewhere is
+a top-level `BOT_CATALOG_REGISTRATION_REMOVED` or
+`BOT_CATALOG_REGISTRATION_CHANGED` diagnostic, whatever `--id` selects. It is
+an error unless `confirmedRegistrationChanges` names that exact change: the ID
+and the new definition path in the bundle, or `null` for a removal. A
+confirmation covers only that change, and one that matches nothing is a
+`BOT_CATALOG_CONFIRMATION_UNUSED` warning. Confirmations are reserved for
+changes the user confirmed; include them again when checking the pending
+proposals. Any other bot in the library that the candidate leaves unusable, for
+example because its collaborator is no longer registered or its entry points at
+a missing definition, is a top-level `BOT_CATALOG_BREAKS_BOT` error that no
+confirmation removes. Build catalog edits from `read --current` bytes so
+pending entries survive. Each bot lists in `requires` the unaccepted
+revisions it depends on, which a person should accept together. `candidates`
+shows each pending revision's change ID and actor. Additional error codes are
+`BOT_CHECK_UNREGISTERED` (no catalog entry registers a definition),
+`BOT_NAME_DUPLICATE`, `BOT_CHECK_CANDIDATE_INVALID` (a draft is not a valid
+library memory) and `BOT_CHECK_EMPTY`. A registration whose definition exists
+nowhere has state `missing`. `ready` is true only when no checked bot and no
+top-level diagnostic has an error.
+
+The check proposes and accepts nothing, and returns paths without memory
+content. Collaborators and memory in other libraries must already be
+accepted there. Pinned `sources` of drafts are not checked; `change review`
+still verifies them.

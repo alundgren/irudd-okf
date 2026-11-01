@@ -11,6 +11,10 @@ import { applyJournal, previewDigest, recoverBundleLock } from './maintenance.ts
 export const MANIFEST_PATH = 'memory-bundle.json';
 export const HISTORY_PATH = 'memory-history.json';
 interface Manifest { formatVersion: number; id: string; name: string }
+export interface PendingRevision { id: string; path: string; raw: string | null; hash: string | null; actor: MemoryActor }
+export interface OpenRevision { id: string; raw: string | null; status: 'pending' | 'superseded' }
+// Review material for bot checks: latest pending revisions, catalog proposals not yet decided, and the identity rule acceptance would apply.
+export interface ReviewMaterial { pending: PendingRevision[]; openCatalog: OpenRevision[]; identity: (candidates: Array<{ path: string; raw: string }>) => Map<string, OkfError> }
 interface History { version: 1; proposals: ChangeProposal[]; decisions: Array<{ id: string; review: ChangeReview }>; observed?: Record<string,string|null>; publication?: { id: string; expectedHash: string | null; raw?: string | null } }
 const emptyHistory = (): History => ({ version: 1, proposals: [], decisions: [] });
 const bytes = (raw: string | null) => raw === null ? null : { raw, hash: hash(raw) };
@@ -130,6 +134,16 @@ function procedureChanged(old: Concept, next: Concept): boolean {
 // The catalog path counts whatever its type: an ordinary note there would block every unscoped bot resolution.
 // Compare it case-insensitively because Windows and macOS file systems usually are.
 function botDocument(raw: string | null | undefined, bundle: string, file: string): boolean { if (raw === null || raw === undefined) return false; if (file.toLowerCase() === BOT_CATALOG_PATH) return true; const type = parseConcept(bundle, file, raw).type; return type === BOT_CATALOG_TYPE || type === BOT_DEFINITION_TYPE; }
+// Acceptance identity rules: a memory keeps its first explicit id, and no other retained memory may own it.
+// Review applies them to the proposal; bot checks apply them to candidates, including unproposed drafts.
+export function identityConflict(bundle: string, proposals: ReadonlyArray<Pick<ChangeProposal, 'path' | 'after'>>, acceptedByPath: Map<string, Pick<ChangeProposal, 'after'>>, file: string, raw: string): OkfError | null {
+  if (isControl(file)) return null;
+  const memory = record(parseConcept(bundle, file, raw).metadata.memory);
+  const first = proposals.find(item => item.path === file && item.after && nonempty(record(parseConcept(bundle, item.path, item.after.raw).metadata.memory).id));
+  if (first && record(parseConcept(bundle, first.path, first.after!.raw).metadata.memory).id !== memory.id) return new OkfError('MEMORY_ID_CONFLICT', 'A memory keeps its first explicit stable identity.');
+  for (const other of proposals) if (other.path !== file && other.after && acceptedByPath.get(other.path)?.after !== null && record(parseConcept(bundle, other.path, other.after.raw).metadata.memory).id === memory.id) return new OkfError('DUPLICATE_MEMORY_ID', 'Another retained memory owns this stable identity.', { path: other.path });
+  return null;
+}
 function humanRequired(before: string | null, after: string | null, bundle: string, file: string): boolean {
   if (botDocument(before, bundle, file) || botDocument(after, bundle, file)) return true;
   if (before === null) return false;
@@ -374,12 +388,9 @@ export function createLibrary(context: MemoryContext, options: StoreOptions = {}
         if (canonicalJson(sources) !== canonicalJson(requested)) throw new OkfError('SOURCE_CONFLICT', 'Review must include every exact supporting source revision.', { sources });
         if (request.decision === 'accept' && proposal.after !== null) {
           const acceptedByPath=accepted(history);
-          const note=validLibraryNote(bundle.name,proposal.path,proposal.after.raw), memory=record(note.metadata.memory);
-          if (!isControl(proposal.path)) {
-            const first=history.proposals.find(item=>item.path===proposal.path && item.after && nonempty(record(parseConcept(bundle.name,item.path,item.after.raw).metadata.memory).id));
-            if(first && record(parseConcept(bundle.name,first.path,first.after!.raw).metadata.memory).id!==memory.id)throw new OkfError('MEMORY_ID_CONFLICT','A memory keeps its first explicit stable identity.');
-            for(const other of history.proposals)if(other.path!==proposal.path && other.after && acceptedByPath.get(other.path)?.after !== null && record(parseConcept(bundle.name,other.path,other.after.raw).metadata.memory).id===memory.id)throw new OkfError('DUPLICATE_MEMORY_ID','Another retained memory owns this stable identity.',{path:other.path});
-          }
+          validLibraryNote(bundle.name,proposal.path,proposal.after.raw);
+          const conflict=identityConflict(bundle.name,history.proposals,acceptedByPath,proposal.path,proposal.after.raw);
+          if(conflict)throw conflict;
         }
         const review: ChangeReview = { actor: request.actor, reason: request.reason, at: (options.now?.() ?? new Date()).toISOString(), decision: request.decision, revisionHash: proposal.revisionHash, sources };
         const last = history.decisions.findLast(item => item.id === proposal.id)?.review;
@@ -421,7 +432,24 @@ export function createLibrary(context: MemoryContext, options: StoreOptions = {}
       return { version: 1, bundle: bundle.name, path: directory, limit, offset, truncated: ordered.length > offset + limit, entries: ordered.slice(offset, offset + limit) };
     }),
   };
-  return { methods, acceptedDocuments, propose, select, writable, load };
+  // Unreviewed proposals are review material for bot checks, never task guidance.
+  const reviewMaterial = async (bundle: Bundle): Promise<ReviewMaterial> => {
+    const history = await load(bundle), latest = new Map<string, ChangeProposal>();
+    for (const proposal of history.proposals) latest.set(proposal.path, proposal);
+    const pending = [...latest.values()].filter(proposal => view(history, proposal).status === 'pending').map(proposal => ({ id: proposal.id, path: proposal.path, raw: proposal.after?.raw ?? null, hash: proposal.after?.hash ?? null, actor: proposal.actor }));
+    // Catalog proposals after the last accepted one that no person decided, including those a later proposal superseded.
+    const catalog = history.proposals.filter(proposal => proposal.path === BOT_CATALOG_PATH), decided = catalog.findLastIndex(proposal => view(history, proposal).status === 'accepted');
+    const openCatalog = catalog.slice(decided + 1).flatMap(proposal => { const status = view(history, proposal).status; return status === 'pending' || status === 'superseded' ? [{ id: proposal.id, raw: proposal.after?.raw ?? null, status }] : []; });
+    const acceptedByPath = accepted(history);
+    const identity = (candidates: Array<{ path: string; raw: string }>) => {
+      // Candidates count as proposals, so two drafts claiming one identity also conflict.
+      const proposals = [...history.proposals, ...candidates.map(item => ({ path: item.path, after: { raw: item.raw, hash: hash(item.raw) } }))], output = new Map<string, OkfError>();
+      for (const item of candidates) { try { const conflict = identityConflict(bundle.name, proposals, acceptedByPath, item.path, item.raw); if (conflict) output.set(item.path, conflict); } catch { /* Invalid candidates are reported separately. */ } }
+      return output;
+    };
+    return { pending, openCatalog, identity };
+  };
+  return { methods, acceptedDocuments, reviewMaterial, propose, select, writable, load };
 }
 
 export async function initialLibraryFiles(name: string, controls: Array<{path: string; raw: string}> = []): Promise<Array<{ path: string; raw: string }>> {

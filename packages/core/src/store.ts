@@ -474,7 +474,7 @@ export function createStore(input: MemoryContext, options: StoreOptions = {}): S
     if((await inspectLibrary(select(context,bundle))).status==='current')throw new OkfError('APPLICABILITY_CONTEXT_REQUIRED','Use explicit --machine or --repository identity; topics are tags and bundle aliases do not define applicability.');
     return Effect.runPromise(oldNamespaces(bundle));
   });
-  Object.assign(store, library.methods, createBotOperations(context, library.acceptedDocuments));
+  Object.assign(store, library.methods, createBotOperations(context, library.acceptedDocuments, library.reviewMaterial));
   attachLibraryMigration(store, context, options);
   const oldReview = store.review;
   store.review = request => operation(async () => {

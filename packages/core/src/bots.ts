@@ -1,11 +1,12 @@
-import type { Bundle, BotCatalog, BotCollaborator, BotDefinition, BotDiagnostic, BotMemoryDocument, BotMemoryTarget, BotResolveRequest, BotSelection, BotSummary, Concept, MemoryContext, RecallSelection, ResolvedBot, ResolvedBotCollaborator, ResolvedBotMemory, Store } from './contracts.ts';
+import type { Applicability, Bundle, BotCatalog, BotCheckBot, BotCheckCandidate, BotCheckRequest, BotCheckResult, BotRegistrationChange, BotCollaborator, BotDefinition, BotDiagnostic, BotMemoryDocument, BotMemoryTarget, BotResolveRequest, BotSelection, BotSummary, Concept, MemoryContext, RecallSelection, ResolvedBot, ResolvedBotCollaborator, ResolvedBotMemory, Store } from './contracts.ts';
 import { BOT_CATALOG_PATH, BOT_CATALOG_TYPE, BOT_DEFINITION_TYPE, OkfError } from './contracts.ts';
-import { cleanPath, operation, readRaw } from './files.ts';
-import { reserved, resolveLink } from './parser.ts';
+import { cleanPath, hash, operation, readRaw } from './files.ts';
+import { parseConcept, reserved, resolveLink } from './parser.ts';
 import { record } from './memory.ts';
-import { inspectLibrary } from './library.ts';
+import { inspectLibrary, validLibraryNote, type ReviewMaterial } from './library.ts';
 
 type AcceptedDocuments = (bundle: Bundle, selection: RecallSelection) => Promise<Concept[]>;
+type ReviewMaterials = (bundle: Bundle) => Promise<ReviewMaterial>;
 interface Entry { summary: BotSummary; definition: BotDefinition; bundle: Bundle; body: string }
 // A rejected registration keeps its name when an accepted definition still declares one, so it can still block a name.
 interface Rejected { id?: string; name?: string; bundle: Bundle; bundleId: string; path?: string; diagnostic: BotDiagnostic }
@@ -56,14 +57,40 @@ export function parseBotDefinition(value: unknown): { definition: BotDefinition 
   return { definition: { name: bot.name as string, purpose: bot.purpose as string, identity: bot.identity as string, instructions: bot.instructions as string, collaborators, memory, ...(bot.workspace !== undefined ? { workspace: bot.workspace as string } : {}), ...(bot.tests !== undefined ? { tests: bot.tests as string } : {}) }, name: bot.name as string, problems };
 }
 
-export function createBotOperations(context: MemoryContext, acceptedDocuments: AcceptedDocuments): Pick<Store, 'botCatalog' | 'resolveBot'> {
+// Projects an unaccepted revision as if a person accepted it, so a check applies the resolver's own rules to it.
+function candidateConcept(bundle: Bundle, file: string, raw: string): Concept {
+  const concept = validLibraryNote(bundle.name, file, raw);
+  if (isControl(file)) return concept;
+  const memory = record(concept.metadata.memory), declared = record(memory.applicability);
+  const applicability: Applicability = declared.type === 'global' ? { type: 'global' } : { type: declared.type as 'machine' | 'repository', id: String(declared.id) };
+  const expired = typeof memory.expires_at === 'string' && Date.parse(memory.expires_at) <= Date.now(), archived = Boolean(memory.archived_at), deprecated = concept.metadata.status === 'deprecated';
+  concept.memory = { id: String(memory.id), applicability, revisionHash: hash(raw), kind: memory.kind as 'procedural' | 'semantic' | 'episodic', stage: memory.stage as 'bronze' | 'silver' | 'gold', namespace: 'shared', review: 'pending', verified: false, humanReviewed: false, machineVerified: false, trustTier: 'unverified', historicalVerificationEvents: [], freshness: 'current', archived, deprecated, contentHash: hash(raw), dependency: 'valid', eligible: !expired && !archived && !deprecated, trust: 'pending', reviewEvents: [], verificationEvents: [], diagnostics: [] };
+  return concept;
+}
+// Valid catalog entries as stable id -> definition path; malformed entries are left to the catalog rules.
+function registrations(concept: Concept | null | undefined): Map<string, string> {
+  const output = new Map<string, string>();
+  for (const item of Array.isArray(concept?.metadata.bots) ? concept.metadata.bots as unknown[] : []) {
+    const entry = record(item), link = typeof entry.definition === 'string' ? resolveLink(BOT_CATALOG_PATH, entry.definition) : null;
+    if (identifier(entry.id) && link && !link.external && !link.unsafe && !output.has(entry.id)) output.set(entry.id, link.target);
+  }
+  return output;
+}
+function selects(concept: Concept, selection: RecallSelection): boolean {
+  if (!concept.memory) return true;
+  const scope = concept.memory.applicability!;
+  if (!selection.allApplicability && (scope.type === 'machine' && scope.id !== selection.machine || scope.type === 'repository' && scope.id !== selection.repository)) return false;
+  return Boolean(selection.includeExcluded) || concept.memory.eligible;
+}
+
+export function createBotOperations(context: MemoryContext, acceptedDocuments: AcceptedDocuments, reviewMaterial: ReviewMaterials): Pick<Store, 'botCatalog' | 'resolveBot' | 'checkBots'> {
   const select = (name: string) => { const bundle = context.bundles.find(item => item.name === name); if (!bundle) throw new OkfError('BUNDLE_NOT_FOUND', 'Select an active bundle.', { bundle: name }); return bundle; };
-  const documents = () => {
+  const documents = (source: AcceptedDocuments = acceptedDocuments) => {
     const cache = new Map<string, Promise<Concept[]>>();
     return (bundle: Bundle, selection: RecallSelection) => {
       const key = `${bundle.name}\n${JSON.stringify(selection)}`;
       let value = cache.get(key);
-      if (!value) { value = acceptedDocuments(bundle, selection); cache.set(key, value); }
+      if (!value) { value = source(bundle, selection); cache.set(key, value); }
       return value;
     };
   };
@@ -170,6 +197,29 @@ export function createBotOperations(context: MemoryContext, acceptedDocuments: A
     const documents: BotMemoryDocument[] = matches.slice(0, DOCUMENT_LIMIT).map(concept => ({ bundle: bundle.name, path: concept.path, id: concept.memory!.id!, title: concept.title, description: concept.description, revisionHash: concept.memory!.revisionHash!, applicability: concept.memory!.applicability!, body: concept.body }));
     return { target, bundle: bundle.name, bundleId, status: documents.length ? 'available' : 'empty', documents, truncated: matches.length > DOCUMENT_LIMIT };
   }
+  // Collaborators and memory targets are evaluated identically for resolution and checks.
+  async function references(read: AcceptedDocuments, all: Catalogs, entry: Entry, scope: string | undefined, libraries: Map<string, Bundle>): Promise<{ collaborators: ResolvedBotCollaborator[]; memory: ResolvedBotMemory[]; diagnostics: BotDiagnostic[] }> {
+    const diagnostics: BotDiagnostic[] = [];
+    const other = new Map<string, Promise<Catalogs>>();
+    const collaborators: ResolvedBotCollaborator[] = [];
+    for (const reference of entry.definition.collaborators) {
+      const bundleId = reference.bundle ?? entry.summary.bundleId;
+      const enumerated = all.entries.some(item => item.summary.bundleId === bundleId) || all.rejected.some(item => item.bundleId === bundleId) || scope === undefined || libraries.get(bundleId)?.name === scope;
+      let source = all;
+      if (!enumerated && libraries.has(bundleId)) {
+        let pending = other.get(bundleId);
+        if (!pending) { pending = catalogs(read, [libraries.get(bundleId)!]); other.set(bundleId, pending); }
+        source = await pending;
+      }
+      const found = source.entries.find(item => item.summary.id === reference.bot && item.summary.bundleId === bundleId);
+      const reason = found ? '' : !libraries.has(bundleId) ? ' That library is not selected.' : source !== all && source.blocked.length ? ` Its library could not be read: ${source.blocked[0].message}` : source.rejected.some(item => item.id === reference.bot && item.bundleId === bundleId) ? ' The registration exists but its definition is unavailable.' : '';
+      if (!found) diagnostics.push({ level: 'error', code: 'BOT_COLLABORATOR_UNAVAILABLE', bundle: entry.summary.bundle, path: entry.summary.path, bot: entry.summary.id, message: `Collaborator ${reference.bot} in bundle ID ${bundleId} is not a registered accepted bot in the selected libraries.${reason}` });
+      collaborators.push({ reference, status: found ? 'available' : 'unavailable', bot: found ? structuredClone(found.summary) : null });
+    }
+    const memory: ResolvedBotMemory[] = [];
+    for (const target of entry.definition.memory) memory.push(await memoryTarget(read, entry, target, libraries, diagnostic => diagnostics.push(diagnostic)));
+    return { collaborators, memory, diagnostics };
+  }
   return {
     botCatalog: (selection: BotSelection = {}) => operation(async () => {
       if (selection.bundle !== undefined && typeof selection.bundle !== 'string') throw new OkfError('INVALID_REQUEST', 'Select a bundle by its active alias.');
@@ -198,26 +248,126 @@ export function createBotOperations(context: MemoryContext, acceptedDocuments: A
       const entry = valid[0];
       const diagnostics: BotDiagnostic[] = [];
       if (name !== undefined && unnamed.length) diagnostics.push({ level: 'warning', code: 'BOT_UNNAMED_REGISTRATIONS', bundle: entry.summary.bundle, bot: entry.summary.id, message: `${unnamed.length} other ${unnamed.length === 1 ? 'registration has' : 'registrations have'} no accepted definition name. If one is later accepted with this name, resolution becomes ambiguous.` });
-      const libraries = await libraryIds();
-      const other = new Map<string, Promise<Catalogs>>();
-      const collaborators: ResolvedBotCollaborator[] = [];
-      for (const reference of entry.definition.collaborators) {
-        const bundleId = reference.bundle ?? entry.summary.bundleId;
-        const enumerated = all.entries.some(item => item.summary.bundleId === bundleId) || all.rejected.some(item => item.bundleId === bundleId) || request.bundle === undefined || libraries.get(bundleId)?.name === request.bundle;
-        let source = all;
-        if (!enumerated && libraries.has(bundleId)) {
-          let pending = other.get(bundleId);
-          if (!pending) { pending = catalogs(read, [libraries.get(bundleId)!]); other.set(bundleId, pending); }
-          source = await pending;
-        }
-        const found = source.entries.find(item => item.summary.id === reference.bot && item.summary.bundleId === bundleId);
-        const reason = found ? '' : !libraries.has(bundleId) ? ' That library is not selected.' : source !== all && source.blocked.length ? ` Its library could not be read: ${source.blocked[0].message}` : source.rejected.some(item => item.id === reference.bot && item.bundleId === bundleId) ? ' The registration exists but its definition is unavailable.' : '';
-        if (!found) diagnostics.push({ level: 'error', code: 'BOT_COLLABORATOR_UNAVAILABLE', bundle: entry.summary.bundle, path: entry.summary.path, bot: entry.summary.id, message: `Collaborator ${reference.bot} in bundle ID ${bundleId} is not a registered accepted bot in the selected libraries.${reason}` });
-        collaborators.push({ reference, status: found ? 'available' : 'unavailable', bot: found ? structuredClone(found.summary) : null });
-      }
-      const memory: ResolvedBotMemory[] = [];
-      for (const target of entry.definition.memory) memory.push(await memoryTarget(read, entry, target, libraries, diagnostic => diagnostics.push(diagnostic)));
+      const found = await references(read, all, entry, request.bundle, await libraryIds());
+      diagnostics.push(...found.diagnostics);
+      const { collaborators, memory } = found;
       return { version: 1, bot: structuredClone(entry.summary), definition: structuredClone(entry.definition), collaborators, memory, diagnostics, complete: !diagnostics.some(item => item.level === 'error') } satisfies ResolvedBot;
+    }),
+    checkBots: (request: BotCheckRequest) => operation(async () => {
+      const drafts = request?.drafts ?? [], intended = request?.confirmedRegistrationChanges ?? [];
+      if (typeof request?.bundle !== 'string' || request.id !== undefined && !identifier(request.id) || !Array.isArray(drafts) || drafts.some(item => typeof item?.path !== 'string' || typeof item.raw !== 'string') || !Array.isArray(intended) || !intended.every(item => identifier(item?.id) && (item.path === null || typeof item.path === 'string' && targetPath(item.path) === item.path && item.path.endsWith('.md')))) throw new OkfError('INVALID_REQUEST', 'Check one bundle, optionally one stable bot id, drafts given as {path, raw} pairs, and confirmed registration changes as {id, path} with the new definition path in the bundle, or null for a removal.');
+      const bundle = select(request.bundle), inspection = await inspectLibrary(bundle);
+      if (inspection.status !== 'current' || !inspection.id) throw new OkfError('MIGRATION_REQUIRED', 'Bot checks need a current-format library with accepted revisions.', { inspection });
+      const bundleId = inspection.id;
+      // Drafts take precedence over a pending proposal at the same path; both stay unaccepted.
+      const candidates = new Map<string, BotCheckCandidate & { raw: string | null }>();
+      const material = await reviewMaterial(bundle);
+      for (const item of material.pending) candidates.set(item.path, { path: item.path, state: 'pending', hash: item.hash, changeId: item.id, actor: item.actor, raw: item.raw });
+      const drafted = new Set<string>();
+      for (const draft of drafts) {
+        let file: string | null = null;
+        try { file = cleanPath(draft.path); } catch { /* reported below */ }
+        if (file !== draft.path || !file.endsWith('.md') || isControl(file) || drafted.has(file)) throw new OkfError('INVALID_REQUEST', `Draft path ${JSON.stringify(draft.path)} must be a distinct safe relative .md memory path in the bundle, not a navigation or policy file.`);
+        drafted.add(file);
+        candidates.set(file, { path: file, state: 'draft', hash: hash(draft.raw), raw: draft.raw });
+      }
+      const diagnostics: BotDiagnostic[] = [];
+      const projected = new Map<string, Concept | null>();
+      for (const [file, item] of candidates) {
+        if (item.raw === null) { projected.set(file, null); continue; }
+        try { projected.set(file, candidateConcept(bundle, file, item.raw)); }
+        // A supplied draft must be valid; an invalid pending revision, such as an outside edit, keeps its accepted bytes here.
+        catch (error) { diagnostics.push({ level: item.state === 'draft' ? 'error' : 'warning', code: 'BOT_CHECK_CANDIDATE_INVALID', bundle: bundle.name, path: file, message: `The ${item.state} revision is not a valid library memory (${failure(error)}), so this check ${item.state === 'draft' ? 'leaves it out' : 'uses the accepted revision instead'}.` }); }
+      }
+      // Acceptance applies identity rules the note format cannot show; a refused candidate is not projected.
+      for (const [file, conflict] of material.identity([...candidates.values()].flatMap(item => item.raw !== null && projected.get(item.path) ? [{ path: item.path, raw: item.raw }] : []))) {
+        const item = candidates.get(file)!;
+        projected.delete(file);
+        diagnostics.push({ level: item.state === 'draft' ? 'error' : 'warning', code: conflict.code, bundle: bundle.name, path: file, message: `Acceptance would refuse the ${item.state} revision: ${conflict.message}${typeof conflict.details.path === 'string' ? ` (${conflict.details.path})` : ''} This check ${item.state === 'draft' ? 'leaves it out' : 'uses the accepted revision instead'}.` });
+      }
+      const overlay: AcceptedDocuments = async (target, selection) => {
+        const accepted = await acceptedDocuments(target, selection);
+        if (target.name !== bundle.name) return accepted;
+        return [...accepted.filter(concept => !projected.has(concept.path)), ...[...projected.values()].filter((concept): concept is Concept => concept !== null && selects(concept, selection)).map(concept => structuredClone(concept))];
+      };
+      const read = documents(overlay);
+      const all = await catalogs(read, context.bundles);
+      const libraries = await libraryIds();
+      const acceptedAll = await acceptedDocuments(bundle, { allApplicability: true, includeExcluded: true }), acceptedPaths = new Set(acceptedAll.map(concept => concept.path));
+      const before = registrations(acceptedAll.find(concept => concept.path === BOT_CATALOG_PATH));
+      const stateOf = (file: string) => candidates.get(file)?.state ?? (acceptedPaths.has(file) ? 'accepted' : 'missing');
+      // A registration needs the catalog candidate when the accepted catalog does not already register it at that path.
+      const needs = (id: string, file: string, output: Set<string>) => { if (projected.has(file)) output.add(file); if (projected.has(BOT_CATALOG_PATH) && before.get(id) !== file) output.add(BOT_CATALOG_PATH); };
+      // A catalog candidate must keep every registration that is accepted or still awaiting a decision, unless the user confirmed changing it.
+      // These diagnostics are reported whatever --id selects, because the dropped bot is not the one being checked.
+      const catalogCandidate = candidates.get(BOT_CATALOG_PATH), catalogChecked = catalogCandidate !== undefined && projected.has(BOT_CATALOG_PATH);
+      // Ids whose registration the candidate adds, removes or re-points; other bots that depend on them are checked below.
+      const touched = new Set<string>();
+      if (catalogCandidate && catalogChecked) {
+        const next = registrations(projected.get(BOT_CATALOG_PATH)), reported = new Set<string>(), matched = new Set<BotRegistrationChange>();
+        for (const [id, file] of next) if (before.get(id) !== file) touched.add(id);
+        // A confirmation covers only the exact change it names, never other changes to the same entry.
+        const confirmation = (id: string, now: string | undefined) => intended.find(item => item.id === id && item.path === (now ?? null));
+        const open = material.openCatalog.filter(item => item.raw !== null && item.id !== catalogCandidate.changeId).map(item => { let concept: Concept | undefined; try { concept = parseConcept(bundle.name, BOT_CATALOG_PATH, item.raw!); } catch { /* unreadable revisions register nothing */ } return { label: `${item.status} change ${item.id}`, entries: registrations(concept) }; });
+        for (const baseline of [{ label: 'the accepted catalog', entries: before }, ...open]) for (const [id, file] of baseline.entries) {
+          const now = next.get(id);
+          if (now === file || reported.has(`${id}\n${file}`)) continue;
+          reported.add(`${id}\n${file}`); touched.add(id);
+          const change = now === undefined ? `no longer registers ${id}, which ${baseline.label} registers at ${file}` : `registers ${id} at ${now} instead of ${file} as in ${baseline.label}`;
+          const confirmed = confirmation(id, now);
+          if (confirmed) matched.add(confirmed);
+          diagnostics.push({ level: confirmed ? 'warning' : 'error', code: now === undefined ? 'BOT_CATALOG_REGISTRATION_REMOVED' : 'BOT_CATALOG_REGISTRATION_CHANGED', bundle: bundle.name, path: BOT_CATALOG_PATH, bot: id,
+            message: confirmed ? `Confirmed change: the ${catalogCandidate.state} catalog ${change}.` : `The ${catalogCandidate.state} catalog ${change}. Build catalog edits from the current bytes (read --current) so no entry is lost; list ${JSON.stringify({ id, path: now ?? null })} in confirmedRegistrationChanges only after the user confirms exactly this change.` });
+        }
+        for (const item of intended) if (!matched.has(item)) diagnostics.push({ level: 'warning', code: 'BOT_CATALOG_CONFIRMATION_UNUSED', bundle: bundle.name, path: BOT_CATALOG_PATH, bot: item.id, message: `The confirmed change ${JSON.stringify(item)} does not match what the ${catalogCandidate.state} catalog does to ${item.id}, so it confirms nothing.` });
+      } else for (const item of intended) diagnostics.push({ level: 'warning', code: 'BOT_CATALOG_CONFIRMATION_UNUSED', bundle: bundle.name, path: BOT_CATALOG_PATH, bot: item.id, message: `No catalog candidate is checked, so the confirmed change ${JSON.stringify(item)} confirms nothing.` });
+      const bots: BotCheckBot[] = [];
+      for (const entry of all.entries.filter(item => item.bundle.name === bundle.name)) {
+        const found = await references(read, all, entry, undefined, libraries);
+        if (entry.summary.duplicateName) found.diagnostics.unshift({ level: 'error', code: 'BOT_NAME_DUPLICATE', bundle: bundle.name, path: entry.summary.path, bot: entry.summary.id, message: `Another registration in the selected libraries also has the name ${JSON.stringify(entry.summary.name)}, so resolving that name would be ambiguous. Choose a distinct literal name.` });
+        const requires = new Set<string>();
+        needs(entry.summary.id, entry.summary.path, requires);
+        for (const item of found.collaborators) if (item.bot && item.bot.bundle === bundle.name) needs(item.bot.id, item.bot.path, requires);
+        for (const item of found.memory) for (const document of item.documents) if (document.bundle === bundle.name && projected.has(document.path)) requires.add(document.path);
+        bots.push({ id: entry.summary.id, name: entry.summary.name, path: entry.summary.path, state: stateOf(entry.summary.path), registered: true, ready: !found.diagnostics.some(item => item.level === 'error'), requires: [...requires].sort(compare),
+          collaborators: found.collaborators.map(item => ({ bot: item.reference.bot, bundleId: item.reference.bundle ?? bundleId, status: item.status })),
+          memory: found.memory.map(item => ({ target: item.target.id, bundleId: item.bundleId, status: item.status, paths: item.documents.map(document => document.path) })), diagnostics: found.diagnostics });
+      }
+      const rejected = all.rejected.filter(item => item.bundle.name === bundle.name);
+      for (const item of rejected) {
+        const file = item.path ?? BOT_CATALOG_PATH, state = stateOf(file), candidate = candidates.get(file);
+        // The resolver's wording assumes accepted reads; say what the check actually found at the path.
+        const unavailable = item.diagnostic.code === 'BOT_DEFINITION_UNAVAILABLE' ? (state === 'missing' ? `Registered bot ${item.id} has no accepted, pending or draft definition at ${file}. Draft or propose the definition, or remove the entry.` : candidate && candidate.raw === null ? `Pending change ${candidate.changeId} removes the definition at ${file} that registers ${item.id}.` : `The ${state} definition at ${file} for ${item.id} cannot be used; see the top-level diagnostics for that path.`) : null;
+        bots.push({ id: item.id ?? null, name: item.name ?? null, path: file, state, registered: true, ready: false, requires: [], collaborators: [], memory: [], diagnostics: [unavailable ? { ...item.diagnostic, message: unavailable } : item.diagnostic] });
+      }
+      // A definition no catalog entry registers can never be resolved, so report it with every problem found at once.
+      const linked = new Set(bots.map(item => item.path));
+      for (const [file, concept] of projected) {
+        if (concept?.type !== BOT_DEFINITION_TYPE || linked.has(file)) continue;
+        const parsed = parseBotDefinition(concept.metadata.bot), id = concept.memory?.id ?? null;
+        bots.push({ id, name: parsed.name ?? null, path: file, state: stateOf(file), registered: false, ready: false, requires: [file], collaborators: [], memory: [], diagnostics: [
+          { level: 'error', code: 'BOT_CHECK_UNREGISTERED', bundle: bundle.name, path: file, ...(id ? { bot: id } : {}), message: `No catalog entry in ${BOT_CATALOG_PATH} registers this definition, so it cannot be resolved. Add an entry whose id equals the definition's memory id.` },
+          ...(parsed.problems.length || concept.memory?.kind !== 'procedural' ? [{ level: 'error' as const, code: 'BOT_DEFINITION_INVALID', bundle: bundle.name, path: file, message: [...(concept.memory?.kind !== 'procedural' ? [`Bot definitions need procedural kind.`] : []), ...parsed.problems].join(' ') }] : []),
+        ] });
+      }
+      const attached = new Set(rejected.map(item => item.diagnostic));
+      diagnostics.push(...all.diagnostics.filter(item => item.bundle === bundle.name && !attached.has(item)));
+      for (const item of all.blocked.filter(item => item.bundle !== bundle.name)) diagnostics.push({ level: 'warning', code: 'BOT_CHECK_NAME_UNCONFIRMED', bundle: item.bundle, message: `Library ${item.bundle} has no readable bot catalog (${item.code}), so names there could not be compared. An unscoped bot resolve fails until it is repaired.` });
+      const selected = request.id === undefined ? bots : bots.filter(item => item.id === request.id);
+      selected.sort((a, b) => compare(a.path, b.path) || compare(a.id ?? '', b.id ?? ''));
+      // A catalog candidate can break bots outside the selection: report those at top level so --id cannot hide them.
+      if (catalogChecked) for (const item of [...bots].sort((a, b) => compare(a.path, b.path) || compare(a.id ?? '', b.id ?? ''))) {
+        if (selected.includes(item)) continue;
+        const reasons = [
+          ...(item.id && touched.has(item.id) ? item.diagnostics.filter(diagnostic => diagnostic.level === 'error').map(diagnostic => `${diagnostic.code}: ${diagnostic.message}`) : []),
+          ...item.collaborators.filter(collaborator => collaborator.status === 'unavailable' && collaborator.bundleId === bundleId && touched.has(collaborator.bot)).map(collaborator => `its collaborator ${collaborator.bot} is no longer a registered usable bot`),
+        ];
+        if (reasons.length) diagnostics.push({ level: 'error', code: 'BOT_CATALOG_BREAKS_BOT', bundle: bundle.name, path: item.path, ...(item.id ? { bot: item.id } : {}), message: `The ${catalogCandidate!.state} catalog leaves ${item.id ?? item.path} unusable: ${reasons.join(' ')} Repair that bot through its own confirmed proposal, or keep its registrations.` });
+      }
+      if (!selected.length) diagnostics.push({ level: 'error', code: 'BOT_CHECK_EMPTY', bundle: bundle.name, ...(request.id ? { bot: request.id } : {}), message: request.id ? `No accepted, pending or draft definition or registration has id ${request.id} in this library.` : `No accepted, pending or draft bot is registered in ${BOT_CATALOG_PATH} of this library.` });
+      const used = new Set(selected.flatMap(item => [item.path, ...item.requires]));
+      const listed = [...candidates.values()].filter(item => used.has(item.path) || item.path === BOT_CATALOG_PATH).map(({ raw: _, ...item }) => item).sort((a, b) => compare(a.path, b.path));
+      return { version: 1, bundle: bundle.name, bundleId, ready: selected.length > 0 && selected.every(item => item.ready) && !diagnostics.some(item => item.level === 'error'), candidates: listed, bots: selected, diagnostics } satisfies BotCheckResult;
     }),
   };
 }

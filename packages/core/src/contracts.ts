@@ -62,6 +62,7 @@ export interface Store {
   previewRename(request: RenameRequest): Operation<RenamePreview>;
   botCatalog(selection?: BotSelection): Operation<BotCatalog>;
   resolveBot(request: BotResolveRequest): Operation<ResolvedBot>;
+  checkBots(request: BotCheckRequest): Operation<BotCheckResult>;
 }
 export interface GitFile { path: string; status: string }
 export interface GitStatus { version: 1; available: boolean; root: string | null; branch: string | null; remote: string | null; files: GitFile[]; reason?: string }
@@ -183,5 +184,20 @@ export interface ResolvedBotCollaborator { reference: BotCollaborator; status: '
 export interface ResolvedBot { version: 1; bot: BotSummary; definition: BotDefinition; collaborators: ResolvedBotCollaborator[]; memory: ResolvedBotMemory[]; diagnostics: BotDiagnostic[]; complete: boolean }
 export interface BotSelection { bundle?: string }
 export interface BotResolveRequest extends BotSelection { name?: string; id?: string }
+// A bot check evaluates one library as if its pending proposals and the supplied drafts were accepted.
+// It never publishes, accepts or recalls memory content; references to unaccepted revisions are listed in `requires`.
+export interface BotDraft { path: string; raw: string }
+// Removing or re-pointing an accepted or still-undecided registration fails unless that exact change is listed as confirmed by the user.
+// `path` is the bundle path the entry points at after the change, or null when the entry is removed.
+export interface BotRegistrationChange { id: string; path: string | null }
+export interface BotCheckRequest { bundle: string; id?: string; drafts?: BotDraft[]; confirmedRegistrationChanges?: BotRegistrationChange[] }
+export interface BotCheckCandidate { path: string; state: 'pending' | 'draft'; hash: string | null; changeId?: string; actor?: MemoryActor }
+export interface BotCheckBot {
+  id: string | null; name: string | null; path: string; state: 'accepted' | 'pending' | 'draft' | 'missing'; registered: boolean; ready: boolean; requires: string[];
+  collaborators: Array<{ bot: string; bundleId: string; status: 'available' | 'unavailable' }>;
+  memory: Array<{ target: string; bundleId: string; status: 'available' | 'empty' | 'unavailable'; paths: string[] }>;
+  diagnostics: BotDiagnostic[];
+}
+export interface BotCheckResult { version: 1; bundle: string; bundleId: string; ready: boolean; candidates: BotCheckCandidate[]; bots: BotCheckBot[]; diagnostics: BotDiagnostic[] }
 
 export interface ChangeRecoveryResult {version:1;bundle:string;lockRecovered:boolean;lockRecoveryPath?:string;publication:{id:string;path:string;state:'untouched'|'applied'|'externally-changed'}|null}
