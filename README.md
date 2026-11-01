@@ -153,11 +153,16 @@ Command results are JSON. Diagnostics go to stderr. The small
 Native skills remain useful for task procedures. Nothing injects the entire
 memory corpus or all its triggers into the agent's context.
 
-With Vite+ installed, install the skill globally from GitHub for Codex and
+`skill install DIRECTORY --name NAME` installs one bundled skill into
+`DIRECTORY/NAME`: `okf` (the default), `okf-librarian`, `okf-memory-reviewer`,
+`bot-creator` or `bot`. It never replaces an existing folder, so edited
+installations are preserved; remove a folder yourself to reinstall it.
+
+With Vite+ installed, install the skills globally from GitHub for Codex and
 Claude Code:
 
 ```sh
-vp dlx skills add alundgren/irudd-okf --skill okf --global --agent codex claude-code --yes
+vp dlx skills add alundgren/irudd-okf --skill okf bot-creator bot --global --agent codex claude-code --yes
 ```
 
 `vp dlx` uses the workspace's selected package manager, including pnpm.
@@ -294,6 +299,20 @@ matches the exact name and returns the definition and its targets' current
 accepted memory. Unknown, duplicate and unavailable bots are errors, and broken
 references are reported. The working directory never selects a bot's memory.
 See the [memory guide](docs/agent-memory.md#bot-definitions).
+
+The [bot skill](skills/bot/SKILL.md) activates a bot in an ordinary
+conversation. Invoke it like any skill: `/bot` in Claude Code, `$bot` in Codex,
+or `/skill:bot` from the T3 menu. Without a name it lists the bots and lets you
+choose; `/bot game1: playtester check the new build` activates that bot and
+continues with the task. It resolves the exact name with `bot resolve`, reports
+the bot and its memory targets, and keeps a reload line so a compacted or
+resumed conversation can resolve the same bot again. The skill is manual-only:
+`disable-model-invocation: true` for Claude and `agents/openai.yaml` with
+`allow_implicit_invocation: false` for Codex, so mentioning a bot never
+activates it. An active bot proposes memory under the agent's own identity with
+`persona: {bot: ID}` in the note, and recall stays accepted-only until a person
+accepts. Reads take no lock and write nothing, so activation also works in
+read-only sandboxes and beside other commands.
 
 The [bot-creator skill](skills/bot-creator/SKILL.md) lets an ordinary agent
 interview you about a new or changed bot, confirm the brief with you, and then

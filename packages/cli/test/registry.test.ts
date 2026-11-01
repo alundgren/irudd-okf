@@ -19,7 +19,7 @@ describe('progressive command discovery', () => {
   it('registers distinct commands and schemas', () => {
     expect(new Set(commands.map(item => item.command)).size).toBe(commands.length);
     expect(commands.find(item => item.command === 'write')?.input).toMatchObject({ type: 'object', additionalProperties: false });
-    expect(commands.find(item => item.command === 'skill install')?.input).toMatchObject({ properties: { name: { default: 'okf', enum: ['okf', 'okf-librarian', 'okf-memory-reviewer'] } } });
+    expect(commands.find(item => item.command === 'skill install')?.input).toMatchObject({ properties: { name: { default: 'okf', enum: ['okf', 'okf-librarian', 'okf-memory-reviewer', 'bot-creator', 'bot'] } } });
   });
   it('publishes complete memory commands and request-file schemas from core', () => {
     for (const command of ['list', 'profile', 'namespaces', 'bootstrap', 'template', 'review', 'verify', 'task', 'lifecycle', 'audit', 'maintenance preview', 'maintenance apply', 'maintenance inspect', 'maintenance recover', 'migration preview', 'migration apply']) expect(commands.find(item => item.command === command)).toBeDefined();

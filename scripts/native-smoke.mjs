@@ -125,9 +125,23 @@ try {
     assert.match(await readFile(resolve(cwd, provider, provider === 'codex' ? 'AGENTS.md' : 'CLAUDE.md'), 'utf8'), /migration|format/i);
     assert.equal(run('instructions', 'remove', provider).installed, false);
   }
-  for (const name of ['okf', 'okf-librarian', 'okf-memory-reviewer']) {
+  // Reads take no lock: they succeed while another process holds the write lock, and leave the bundle unchanged.
+  await mkdir(resolve(cwd, '.okf', '.irudd-okf'), { recursive: true });
+  const lock = resolve(cwd, '.okf', '.irudd-okf', 'write.lock');
+  await writeFile(lock, JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }));
+  const history = await readFile(resolve(cwd, '.okf', 'memory-history.json'), 'utf8');
+  assert.equal(run('search', 'Native execution').results[0].path, 'native.md');
+  assert.deepEqual(run('bot', 'list', '--scope', 'repo').bots, []);
+  assert.ok(run('change', 'list', 'repo').total > 0);
+  assert.equal(await readFile(resolve(cwd, '.okf', 'memory-history.json'), 'utf8'), history);
+  const blocked = spawnSync(executable, ['change', 'propose', 'repo', '--file', await request({ path: 'locked.md', raw: raw(randomUUID(), 'Locked', 'Blocked write.'), expectedHash: null, actor, reason: 'Lock check.' })], { cwd, encoding: 'utf8', env: environment });
+  assert.equal(JSON.parse(blocked.stderr).error.code, 'LOCKED');
+  await rm(lock);
+  const skillFiles = { okf: ['SKILL.md', 'references/usage.md'], 'okf-librarian': ['SKILL.md', 'references/workflow.md'], 'okf-memory-reviewer': ['SKILL.md', 'references/workflow.md'], 'bot-creator': ['SKILL.md', 'references/definition.md'], bot: ['SKILL.md', 'references/memory.md', 'agents/openai.yaml'] };
+  for (const name of Object.keys(skillFiles)) {
     const installed = run('skill', 'install', resolve(cwd, 'skills'), '--name', name);
-    assert.ok(installed.files.includes('SKILL.md'));
+    assert.deepEqual(installed.files, skillFiles[name]);
+    for (const file of skillFiles[name]) assert.equal(await readFile(resolve(cwd, 'skills', name, file), 'utf8'), await readFile(resolve('skills', name, file), 'utf8'));
     const skillPath = resolve(cwd, 'skills', name, 'SKILL.md');
     assert.match(await readFile(skillPath, 'utf8'), new RegExp(`name: ${name}`));
     await writeFile(skillPath, 'Customized skill.\n');
@@ -136,7 +150,12 @@ try {
     assert.equal(JSON.parse(repeat.stderr).error.code, 'SKILL_INSTALL_FAILED');
     assert.equal(await readFile(skillPath, 'utf8'), 'Customized skill.\n');
   }
-  console.log(JSON.stringify({ version: 1, platform: process.platform, arch: process.arch, checks: ['standalone-without-node-or-git', 'cli-only', 'discovery', 'bundle-format', 'authoring-template', 'pending-recall', 'review-rejection', 'reversible-removal', 'machine-applicability', 'migration-guide-preview-apply-retry-recovery', 'personal-authorization', 'provider-instructions', 'embedded-skills'], passed: true }));
+  // Activation is manual-only for both providers; the creator stays discoverable.
+  const botSkill = await readFile(resolve('skills', 'bot', 'SKILL.md'), 'utf8');
+  assert.match(botSkill.slice(0, botSkill.indexOf('\n---', 4)), /^disable-model-invocation: true\r?$/m);
+  assert.match(await readFile(resolve(cwd, 'skills', 'bot', 'agents', 'openai.yaml'), 'utf8'), /^policy:\r?\n {2}allow_implicit_invocation: false\r?$/m);
+  assert.doesNotMatch(await readFile(resolve('skills', 'bot-creator', 'SKILL.md'), 'utf8'), /disable-model-invocation/);
+  console.log(JSON.stringify({ version: 1, platform: process.platform, arch: process.arch, checks: ['standalone-without-node-or-git', 'cli-only', 'discovery', 'bundle-format', 'authoring-template', 'pending-recall', 'review-rejection', 'reversible-removal', 'machine-applicability', 'migration-guide-preview-apply-retry-recovery', 'personal-authorization', 'provider-instructions', 'lock-free-reads', 'embedded-skills', 'bot-skill-manual-only'], passed: true }));
 } finally {
   await rm(cwd, { recursive: true, force: true });
 }

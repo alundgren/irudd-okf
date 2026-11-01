@@ -4,6 +4,8 @@ import { basename, dirname, join, sep } from 'node:path';
 import { tmpdir } from 'node:os';
 import { Effect } from 'effect';
 import { installSkill, skillNames } from '../src/skill.ts';
+import { skillAssets, skillFiles } from '../src/skill-files.ts';
+import { parse } from 'yaml';
 
 vi.mock('node:fs/promises', async importOriginal => ({ ...await importOriginal<typeof import('node:fs/promises')>() }));
 const directories: string[] = [];
@@ -37,13 +39,60 @@ describe('portable skill installation', () => {
     const original = fs.readFile;
     vi.spyOn(fs, 'readFile').mockImplementation(async (...args: Parameters<typeof fs.readFile>) => {
       const file = String(args[0]);
-      if (file.includes(`${sep}skills${sep}${name}${sep}`)) return file.endsWith('SKILL.md') ? `name: ${name}\n` : 'Workflow reference.\n';
+      if (file.includes(`${sep}skills${sep}${name}${sep}`)) return file.endsWith('SKILL.md') ? `name: ${name}\n` : `Supporting file ${basename(file)}.\n`;
       return original(...args);
     });
     const result = await run(installSkill(root, name));
     expect(result.directory).toBe(join(root, name));
-    expect(result.files).toContain(name === 'okf' ? 'references/usage.md' : 'references/workflow.md');
+    expect(result.files).toEqual([...skillFiles[name]]);
+    for (const file of skillFiles[name].slice(1)) expect(await fs.readFile(join(result.directory, file), 'utf8')).toBe(`Supporting file ${basename(file)}.\n`);
     expect(await fs.readFile(join(result.directory, 'SKILL.md'), 'utf8')).toContain(`name: ${name}`);
+  });
+
+  it('installs all five bundled skills side by side with their exact files and manual-only bot metadata', async () => {
+    const root = await fixture();
+    expect(skillNames).toEqual(['okf', 'okf-librarian', 'okf-memory-reviewer', 'bot-creator', 'bot']);
+    for (const name of skillNames) {
+      const result = await run(installSkill(root, name));
+      expect(result.files).toEqual([...skillFiles[name]]);
+      for (const file of skillFiles[name]) expect(await fs.readFile(join(result.directory, file), 'utf8')).toBe(await fs.readFile(join('skills', name, file), 'utf8'));
+      expect(await fs.readFile(join(result.directory, 'SKILL.md'), 'utf8')).toMatch(new RegExp(`^---\\r?\\nname: ${name}\\r?\\n`));
+    }
+    expect((await fs.readdir(root)).sort()).toEqual([...skillNames].sort());
+    const bot = await fs.readFile(join(root, 'bot', 'SKILL.md'), 'utf8'), frontmatter = bot.slice(0, bot.indexOf('\n---', 4));
+    expect(frontmatter).toMatch(/^disable-model-invocation: true\r?$/m);
+    expect(await fs.readFile(join(root, 'bot', 'agents', 'openai.yaml'), 'utf8')).toMatch(/^policy:\r?\n {2}allow_implicit_invocation: false\r?$/m);
+    // The creator stays discoverable from ordinary requests; only activation is manual.
+    expect(await fs.readFile(join(root, 'bot-creator', 'SKILL.md'), 'utf8')).not.toMatch(/disable-model-invocation/);
+    await expect(fs.lstat(join(root, 'bot-creator', 'agents'))).rejects.toMatchObject({ code: 'ENOENT' });
+    // An operator's edited installation is never replaced.
+    for (const name of skillNames) {
+      const file = join(root, name, skillFiles[name].at(-1)!);
+      await fs.writeFile(file, 'Operator edit.\n');
+      await expect(run(installSkill(root, name))).rejects.toMatchObject({ code: 'SKILL_INSTALL_FAILED' });
+      expect(await fs.readFile(file, 'utf8')).toBe('Operator edit.\n');
+    }
+  });
+
+  it('lists every file of each skills/ directory for installation and native packaging', async () => {
+    const walk = async (directory: string, prefix = ''): Promise<string[]> => (await Promise.all((await fs.readdir(directory, { withFileTypes: true })).map(entry => entry.isDirectory() ? walk(join(directory, entry.name), `${prefix}${entry.name}/`) : [prefix + entry.name]))).flat();
+    expect((await fs.readdir('skills')).sort()).toEqual([...skillNames].sort());
+    for (const name of skillNames) {
+      expect((await walk(join('skills', name))).sort()).toEqual([...skillFiles[name]].sort());
+      expect(skillFiles[name][0]).toBe('SKILL.md');
+      expect(skillFiles[name].every(file => file.split('/').length <= 2)).toBe(true);
+    }
+    // Hosts skip a skill whose frontmatter is not valid YAML with string name and description.
+    for (const name of skillNames) {
+      const raw = await fs.readFile(join('skills', name, 'SKILL.md'), 'utf8'), match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n/.exec(raw);
+      const metadata = parse(match![1]);
+      expect(metadata).toMatchObject({ name, description: expect.any(String) });
+      expect(metadata.description.length).toBeLessThanOrEqual(1024);
+    }
+    const assets = skillAssets();
+    expect(Object.values(assets).sort()).toEqual(skillNames.flatMap(name => skillFiles[name].map(file => `skills/${name}/${file}`)).sort());
+    expect(assets['skill/SKILL.md']).toBe('skills/okf/SKILL.md');
+    expect(assets['skills/bot/agents/openai.yaml']).toBe('skills/bot/agents/openai.yaml');
   });
 
   it('rejects symbolic link destinations and parents without touching their files', async () => {
