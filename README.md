@@ -263,10 +263,17 @@ review decisions and recovery history. Routine librarian work, such as
 consolidating episodes, merging duplicates, adding evidence, promoting stage and
 archiving, records an agent reviewer. Changes to procedure steps or
 applicability, lost evidence and removals of memories no retained memory cites
-remain pending for a human. A derived
+need a human decision unless the conversation already explicitly approved that
+concrete scope. The acting agent carries that approval through matching
+implementation with `change review`'s `approval` reference, scope and exact
+path/revision list. This records agent execution, not human review of generated
+bytes. New proposal IDs do not require another acceptance. A derived
 procedure or fact retains source revisions and receives its own review.
 
-Ask your existing coding agent to run a dreaming loop. Scope's permanent
+Ask your existing coding agent to run a dreaming loop, or give it a standing
+instruction to automate routine consolidation in its existing session. Routine
+supported learning uses agent review, including the author's own assessment;
+it does not require a manual queue or a new dreaming request per batch. Scope's permanent
 Librarian tab shows the human review queue and completed overview. Conversation
 stays in your agent session. No model service or memory maintenance process runs
 by default. Scope reminds you weekly to initiate the loop. The reminder is on
@@ -310,15 +317,21 @@ resumed conversation can resolve the same bot again. The skill is manual-only:
 `disable-model-invocation: true` for Claude and `agents/openai.yaml` with
 `allow_implicit_invocation: false` for Codex, so mentioning a bot never
 activates it. An active bot proposes memory under the agent's own identity with
-`persona: {bot: ID}` in the note, and recall stays accepted-only until a person
-accepts. Reads take no lock and write nothing, so activation also works in
+`persona: {bot: ID}` in the note, then checks and accepts routine authorized
+learning with agent review. Recall uses accepted revisions. Reads take no lock
+and write nothing, so activation also works in
 read-only sandboxes and beside other commands.
 
 The [bot-creator skill](skills/bot-creator/SKILL.md) lets an ordinary agent
 interview you about a new or changed bot, confirm the brief with you, and then
-propose its definition and catalog entry. It never activates the bot or accepts
-its own proposals. Before a person accepts, `bot check` validates the drafts or
-pending proposals with the same rules `bot resolve` applies:
+save its definition and catalog entry. That approval carries through tracked
+proposals, checks, acceptance and registration, including ordinary starting notes
+and navigation. The agent records its own execution with the conversation's
+approval reference and scope; it does not send you to Scope to approve the same
+work again. Substantive deviations require a decision about the difference and
+unrelated pending work stays separate. Activation remains explicit. Before
+acceptance, `bot check` validates drafts or pending proposals with the same rules
+`bot resolve` applies:
 
 ```sh
 irudd-okf bot check bots --id game1-playtester --file drafts.json

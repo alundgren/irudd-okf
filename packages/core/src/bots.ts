@@ -57,7 +57,7 @@ export function parseBotDefinition(value: unknown): { definition: BotDefinition 
   return { definition: { name: bot.name as string, purpose: bot.purpose as string, identity: bot.identity as string, instructions: bot.instructions as string, collaborators, memory, ...(bot.workspace !== undefined ? { workspace: bot.workspace as string } : {}), ...(bot.tests !== undefined ? { tests: bot.tests as string } : {}) }, name: bot.name as string, problems };
 }
 
-// Projects an unaccepted revision as if a person accepted it, so a check applies the resolver's own rules to it.
+// Projects an unaccepted revision as accepted so a check applies the resolver's own rules to it.
 function candidateConcept(bundle: Bundle, file: string, raw: string): Concept {
   const concept = validLibraryNote(bundle.name, file, raw);
   if (isControl(file)) return concept;

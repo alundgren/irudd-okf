@@ -1,12 +1,12 @@
 import * as fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { Applicability, Bundle, BundleInspection, ChangeProposal, ChangeRecord, ChangeRequest, ChangeReview, Concept, MemoryActor, MemoryContext, RecallSelection, SourceRevision, Store, StoreOptions, MaintenancePreview } from './contracts.ts';
+import type { Applicability, Bundle, BundleInspection, ChangeProposal, ChangeRecord, ChangeRequest, ChangeReview, ConversationApproval, Concept, MemoryActor, MemoryContext, RecallSelection, SourceRevision, Store, StoreOptions, MaintenancePreview } from './contracts.ts';
 import { BOT_CATALOG_PATH, BOT_CATALOG_TYPE, BOT_DEFINITION_TYPE, OkfError, SUPPORTED_FORMAT_VERSION, VERSION } from './contracts.ts';
 import { absent, atomicCreate, atomicReplace, canonicalDirectory, cleanPath, guarded, hash, lockOwner, operation, readRaw, scan, settled, withLock } from './files.ts';
 import { parseConcept, reserved, resolveLink } from './parser.ts';
 import { canonicalJson, patchMetadata, record, metadataLinks } from './memory.ts';
-import { ChangeSchema, ChangeReviewSchema, ChangeUndoSchema, decode, MigrationSchema, ApplySchema } from './schemas.ts';
+import { ChangeSchema, ChangeReviewSchema, ConversationApprovalSchema, ChangeUndoSchema, decode, MigrationSchema, ApplySchema } from './schemas.ts';
 import { applyJournal, previewDigest, recoverBundleLock } from './maintenance.ts';
 
 export const MANIFEST_PATH = 'memory-bundle.json';
@@ -24,6 +24,14 @@ const digest = (value: string | null) => { if (value !== null && !/^[a-f0-9]{64}
 const identity = (actor: MemoryActor, reason: string) => { if (!nonempty(actor.id) || !nonempty(reason)) throw new OkfError('INVALID_REQUEST', 'Actor identity and reason must be nonempty.'); };
 const isControl = (file: string) => reserved(file) || file === 'memory-policy.md';
 const sourceKey = (source: SourceRevision) => `${source.bundle ?? ''}:${source.id ?? ''}:${source.path}:${source.hash}`;
+function validateApproval(approval: ConversationApproval): void {
+  if (!nonempty(approval.reference) || !nonempty(approval.scope) || !approval.changes.length || approval.changes.length > 100) throw new OkfError('APPROVAL_SCOPE_CONFLICT', 'Record the existing conversational approval reference, concrete scope and bounded implementation revisions.');
+  const paths = new Set<string>();
+  for (const change of approval.changes) {
+    if (change.path !== cleanPath(change.path) || !change.path.endsWith('.md') || paths.has(change.path) || !/^[a-f0-9]{64}$/.test(change.revisionHash)) throw new OkfError('APPROVAL_SCOPE_CONFLICT', 'Approval implementation revisions need distinct memory paths and exact revision hashes.');
+    paths.add(change.path);
+  }
+}
 function proposalDigest(proposal: Omit<ChangeProposal, 'revisionHash'> | ChangeProposal): string { const { revisionHash: _, ...payload } = proposal as ChangeProposal; return hash(canonicalJson(payload)); }
 function displayMemory(concept:Concept|null) {
   if(!concept || isControl(concept.path))return null;
@@ -83,6 +91,13 @@ async function readHistoryText(bundle: Bundle): Promise<{ raw: string; history: 
     ids.add(proposal.id);
   }
   for (const event of history.decisions) if (!ids.has(event.id) || event.review?.revisionHash !== history.proposals.find(item => item.id === event.id)?.revisionHash || (!['accept', 'reject'].includes(event.review?.decision) || !['agent','human'].includes(event.review?.actor?.type) || !nonempty(event.review?.actor?.id) || !nonempty(event.review?.reason) || !Array.isArray(event.review?.sources))) throw new OkfError('INVALID_MEMORY_HISTORY', 'A decision references an unknown or different proposal revision.');
+  for (const event of history.decisions) if (event.review.approval !== undefined) {
+    try {
+      const approval = decode(ConversationApprovalSchema, event.review.approval); validateApproval(approval);
+      const proposal = history.proposals.find(item => item.id === event.id)!;
+      if (event.review.actor.type !== 'agent' || event.review.decision !== 'accept' || !approval.changes.some(item => item.path === proposal.path && item.revisionHash === proposal.revisionHash)) throw new Error('Approval does not match its execution.');
+    } catch { throw new OkfError('INVALID_MEMORY_HISTORY', 'A conversational approval must retain its scope and exact agent-executed revision.'); }
+  }
   if(history.publication && (!ids.has(history.publication.id) || !Object.hasOwn(history.publication,'expectedHash')))throw new OkfError('INVALID_MEMORY_HISTORY','Publication intent must identify a retained proposal and expected preimage.');
   return { raw: raw!, history };
 }
@@ -481,15 +496,20 @@ ${intent.state}`;
     reviewChange: request => operation(async () => {
       request = decode(ChangeReviewSchema, request); identity(request.actor, request.reason);
       if (request.actor.type === 'human' && !request.operator) throw new OkfError('HUMAN_REVIEW_AUTHORIZATION', 'Human review requires deliberate operator acknowledgement.');
+      if (request.approval) {
+        validateApproval(request.approval);
+        if (request.actor.type !== 'agent' || request.decision !== 'accept' || request.operator) throw new OkfError('APPROVAL_SCOPE_CONFLICT', 'Conversational approval records agent execution of approved work, not a human review or rejection.');
+      }
       const bundle = select(request.bundle); writable(bundle, request); await requireLibrary(bundle);
       return withLock(bundle.root, async () => {
         const history = await readHistory(bundle); await detectExternal(bundle, history);
         const proposal = history.proposals.find(item => item.id === request.id);
         if (!proposal) throw new OkfError('CHANGE_NOT_FOUND', 'The immutable change does not exist.');
         if (proposal.revisionHash !== request.expectedRevisionHash || history.proposals.findLast(item => item.path === proposal.path)?.id !== proposal.id) throw new OkfError('REVIEW_CONFLICT', 'Review must bind the latest exact proposed revision.');
+        if (request.approval && !request.approval.changes.some(item => item.path === proposal.path && item.revisionHash === proposal.revisionHash)) throw new OkfError('APPROVAL_SCOPE_CONFLICT', 'This revision is outside the recorded approved implementation. Reassess it against the brief; substantive deviations need a new decision.');
         // Retention of the citing memory can change after the removal was proposed.
-        // Bot documents are rechecked here so proposals recorded before this rule still reach a person.
-        if (request.actor.type !== 'human' && (proposal.humanRequired || botDocument(proposal.before?.raw, bundle.name, proposal.path) || botDocument(proposal.after?.raw, bundle.name, proposal.path) || request.decision === 'accept' && proposal.after === null && !await consolidatedDelete(bundle, history, proposal.path, proposal.before?.raw ?? null))) throw new OkfError('HUMAN_REVIEW_REQUIRED', 'This change requires a human decision because it changes procedure steps, applicability or a bot catalog or definition, edits files outside the library, removes or replaces evidence, or removes a memory no retained memory cites.');
+        // Bot documents are rechecked even for older proposals; existing scope approval can authorize execution.
+        if (request.actor.type !== 'human' && !request.approval && (proposal.humanRequired || botDocument(proposal.before?.raw, bundle.name, proposal.path) || botDocument(proposal.after?.raw, bundle.name, proposal.path) || request.decision === 'accept' && proposal.after === null && !await consolidatedDelete(bundle, history, proposal.path, proposal.before?.raw ?? null))) throw new OkfError('HUMAN_REVIEW_REQUIRED', 'This change needs a human decision or agent execution of an already approved conversational scope. Record the existing approval when it covers this implementation; do not ask again merely because proposal IDs were generated later.');
         const sources = await sourcesFor(bundle, proposal.path, proposal.after?.raw ?? null, proposal.sources);
         const requested = await sourcesFor(bundle, proposal.path, null, request.sources);
         if (canonicalJson(sources) !== canonicalJson(requested)) throw new OkfError('SOURCE_CONFLICT', 'Review must include every exact supporting source revision.', { sources });
@@ -499,7 +519,7 @@ ${intent.state}`;
           const conflict=identityConflict(bundle.name,history.proposals,acceptedByPath,proposal.path,proposal.after.raw);
           if(conflict)throw conflict;
         }
-        const review: ChangeReview = { actor: request.actor, reason: request.reason, at: (options.now?.() ?? new Date()).toISOString(), decision: request.decision, revisionHash: proposal.revisionHash, sources };
+        const review: ChangeReview = { actor: request.actor, reason: request.reason, at: (options.now?.() ?? new Date()).toISOString(), decision: request.decision, revisionHash: proposal.revisionHash, sources, ...(request.approval ? { approval: request.approval } : {}) };
         const last = history.decisions.findLast(item => item.id === proposal.id)?.review;
         if (last && canonicalJson({ ...last, at: undefined }) === canonicalJson({ ...review, at: undefined })) return view(history, proposal);
         const priorAccepted = accepted(history).get(proposal.path);

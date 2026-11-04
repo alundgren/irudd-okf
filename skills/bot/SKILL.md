@@ -89,7 +89,8 @@ Continue with the task from the arguments. Without a task, ask what to do.
 - Recall is accepted memory only: the resolved documents, and `search` or
   `read` in the target's library with the target's repository or machine.
   Pending changes are not knowledge.
-- Write memory only as the target's `write` rule says, through proposals that
-  a person accepts. Read [memory](references/memory.md) before proposing.
+- Write memory only as the target's `write` rule says, through tracked proposals.
+  Check and accept routine authorized learning yourself; carry existing approval
+  through matching work. Read [memory](references/memory.md) before proposing.
 - A new `/bot` invocation replaces the active bot. If the user says to stop,
   drop the persona and say the bot is no longer active.

@@ -1,6 +1,6 @@
 ---
 name: bot-creator
-description: Create or revise a named bot (a persistent helper with its own instructions, collaborators and memory in an irudd-okf library) through a rigorous interview, then propose its definition and catalog entry for a person to accept. Use whenever the user asks to create, design, set up, define, edit or revise a bot or a named helper such as a playtester, coordinator, reviewer or coach, for example "help me create a playtester", "make a coordinator bot for this project" or "edit my coordinator bot", even if they never say bot-creator. Not for activating, running or talking to an existing bot, and not when a bot is only mentioned.
+description: Create or revise a named bot (a persistent helper with its own instructions, collaborators and memory in an irudd-okf library) through a rigorous interview, then save and register it using the user's approval of the complete brief. Use whenever the user asks to create, design, set up, define, edit or revise a bot or a named helper such as a playtester, coordinator, reviewer or coach, for example "help me create a playtester", "make a coordinator bot for this project" or "edit my coordinator bot", even if they never say bot-creator. Not for activating, running or talking to an existing bot, and not when a bot is only mentioned.
 ---
 
 # Bot creator
@@ -8,12 +8,12 @@ description: Create or revise a named bot (a persistent helper with its own inst
 Help the user turn a creation or edit request into one complete, agreed bot
 definition. You are the author, not the bot: never speak as it, take its name,
 follow its instructions, activate it, start or schedule a thread for it, or
-message another bot. Activation stays the user's explicit choice after a person
-accepts the definition.
+message another bot. Activation stays the user's explicit choice after the
+approved definition is saved and registered.
 
 The user makes the decisions; you find the facts and handle storage. Persist
-nothing until the user confirms the brief, and then only through tracked
-proposals that a person accepts. Read [definition](references/definition.md)
+nothing until the user confirms the brief, then complete tracked proposals and
+acceptance within that approval. Read [definition](references/definition.md)
 before writing files.
 
 ## How to talk to the user
@@ -125,8 +125,14 @@ behavior, tools, stance and the trial. Follow it with:
   is its own line and only when the user asked for it. Give paths only if the
   user asks.
 
-Ask the user to confirm the brief and the proposal list explicitly. If they
-stop early, give them the brief and open decisions and persist nothing.
+Ask the user to confirm the brief and saved-change list explicitly. This one
+approval authorizes writing, checking, accepting and registering the matching
+definition, catalog entry and ordinary supporting notes/navigation. A "yes" to
+this complete brief is enough, including when proposal IDs do not exist yet.
+If that approval is already in the conversation, carry it forward; do not ask
+again. If they stop before approving, give the brief and open decisions and
+persist nothing. Substantive changes to purpose, decision rights, collaborators,
+memory access or another bot need a decision about that difference only.
 
 ## 5. Write and check
 
@@ -151,7 +157,7 @@ change to `confirmedRegistrationChanges` as `{"id": ID, "path": NEW_PATH}`, or
 breaks; repair that bot through its own confirmed proposal. Propose only when
 the check reports `ready: true`.
 
-## 6. Propose
+## 6. Save and register
 
 Submit each file with `change propose` under your actual agent identity and a
 reason that cites the confirmed brief. Storage details the user never needed to
@@ -160,21 +166,31 @@ them in one plain line, not as questions. Propose a change to another bot only
 when the user confirmed that exact change as a separate item. Run `bot check`
 again to confirm that the pending set is ready, this time with a request file
 that holds only your `confirmedRegistrationChanges` (no file if there are none;
-without them a confirmed change reports as an error again). Then report briefly, in plain words:
+without them a confirmed change reports as an error again).
 
-- that the proposals are waiting for the user's acceptance, and how to accept
-  them (in Scope, or `change review` with an operator decision), with the change
-  IDs listed last for reference,
-- which changes must be accepted together (from `requires`),
-- the trial to run after acceptance by activating the bot in a fresh thread.
+Compare the exact pending bytes with the approved brief and saved-change list.
+Record your agent acceptance with `change review`, carrying that existing
+conversational approval as described in [definition](references/definition.md).
+Accept supporting notes first, then the definition and registration/navigation.
+Inspect `requires` for dependencies, not a list to blanket-accept: unrelated
+pending proposals are outside this approval. Never accept borrowed pending
+edits in a shared catalog or index. Isolate your approved edit from accepted
+bytes while preserving the other draft and its history; if the concurrent edits
+cannot be safely separated, report the concrete conflict rather than requesting
+approval of the same brief again. Do not bypass catalog checks or claim a
+registration removal was confirmed when it was not.
 
-Do not accept or reject the proposals, and do not describe the bot as
-available until a person has accepted them.
+Re-run `bot check`, `bot list` and `bot resolve --id ID --scope BUNDLE` to verify
+that registration and required starting notes are accepted and complete. Report
+the bot as saved and available only after this succeeds, plus the trial to run
+by explicitly activating it in a fresh thread. Do not send the user to Scope or
+ask for another acceptance of matching work. If implementation departs
+substantively from the brief, repair it or ask only about the new decision.
 
 ## Revising a bot
 
 Start from the accepted definition. Interview only the branches the edit
 touches, plus the branches that depend on them. Propose an update against the
-current file hash. The previous accepted revision stays in effect until a
-person accepts the edit. Changing purpose, responsibilities or decision rights
+current file hash. The previous accepted revision stays in effect until the
+approved edit is accepted through the same flow. Changing purpose, responsibilities or decision rights
 is authoring that goes through this workflow, not a routine memory update.

@@ -21,7 +21,7 @@ overlays the bundle's latest pending revisions and the request's drafts onto
 accepted documents and runs the same catalog and reference evaluation as
 `bot resolve`. Candidates are review material: the check publishes nothing,
 returns paths rather than memory content, and lists in `requires` which
-unaccepted revisions a bot depends on so a person can accept them together.
+unaccepted revisions a bot depends on so the approved work can be completed.
 Two co-created bots that name each other therefore check as ready before either
 is accepted.
 
@@ -37,8 +37,16 @@ whatever `--id` selects. Identity checks call the same `identityConflict` rule t
 `change review` uses, so a check never passes a revision acceptance refuses.
 
 Core does not force a person's decision on seeded initial notes, because they
-are ordinary memories. The creator leaves them pending, and `requires` makes
-them visible to the reviewer. A definition accepted without its seeded note
+are ordinary memories. After one approval of the complete brief and saved-change
+list, the creator checks and accepts the matching definition, registration,
+starting notes and navigation through tracked review. It records its actual agent
+identity and `approval` metadata citing the existing conversation, concrete scope
+and exact implementation revisions, never a fabricated human review. Proposal IDs
+generated afterward do not require another approval or Scope click. Pending
+supporting notes use ordinary agent review or the same scoped approval. Substantive
+deviations require a decision about the difference; unrelated pending revisions,
+including borrowed edits in shared files, cannot be accepted by this scope.
+A definition accepted without its seeded note
 resolves with `complete: false` rather than borrowing the pending text.
 
 Collaborators and memory in other libraries are checked only against their

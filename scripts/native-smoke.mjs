@@ -137,6 +137,29 @@ try {
   const blocked = spawnSync(executable, ['change', 'propose', 'repo', '--file', await request({ path: 'locked.md', raw: raw(randomUUID(), 'Locked', 'Blocked write.'), expectedHash: null, actor, reason: 'Lock check.' })], { cwd, encoding: 'utf8', env: environment });
   assert.equal(JSON.parse(blocked.stderr).error.code, 'LOCKED');
   await rm(lock);
+
+  // One approval of a complete brief carries through generated proposal IDs and registration.
+  const state = run('change', 'propose', 'repo', '--file', await request({ path: 'galaxy/state.md', raw: raw('galaxy-state', 'Starting state', 'No calibration matrix exists yet.'), expectedHash: null, actor, reason: 'Save the approved starting state.' }));
+  const definitionRaw = raw('galaxy-playtester', 'Galaxy Playtester', 'Confirmed playtester.').replace('type: Fact', 'type: Bot definition').replace('kind: semantic', 'kind: procedural').replace('\n---\n\n', '\nbot: ' + JSON.stringify({ name: 'Galaxy Playtester', purpose: 'Play Galaxy and report evidence.', identity: 'Galaxy Playtester', instructions: 'Report observations; accept routine supported learning.', collaborators: [], memory: [{ id: 'state', role: 'own', path: state.path, read: 'At activation.', write: 'Accept routine supported observations.' }] }) + '\n---\n\n');
+  const definition = run('change', 'propose', 'repo', '--file', await request({ path: 'bots/galaxy-playtester.md', raw: definitionRaw, expectedHash: null, actor, reason: 'Implement the confirmed brief.' }));
+  const catalogRaw = raw('bot-catalog', 'Bots', 'Registered bots.').replace('type: Fact', 'type: Bot catalog').replace('kind: semantic', 'kind: procedural').replace('\n---\n\n', '\nbots: [{id: galaxy-playtester, definition: galaxy-playtester.md}]\n---\n\n');
+  const catalog = run('change', 'propose', 'repo', '--file', await request({ path: 'bots/catalog.md', raw: catalogRaw, expectedHash: null, actor, reason: 'Register the approved bot.' }));
+  const currentIndex = run('read', 'repo', 'index.md', '--current');
+  const navigation = run('change', 'propose', 'repo', '--file', await request({ path: 'index.md', raw: currentIndex.raw + '\n- [Galaxy Playtester](bots/galaxy-playtester.md)\n', expectedHash: currentIndex.hash, actor, reason: 'Navigate to the approved bot.' }));
+  const unrelated = run('change', 'propose', 'repo', '--file', await request({ path: 'unrelated.md', raw: raw('unrelated', 'Unrelated', 'Leave this pending.'), expectedHash: null, actor, reason: 'Unrelated draft.' }));
+  assert.equal(run('bot', 'check', 'repo', '--id', 'galaxy-playtester').ready, true);
+  const approval = { reference: 'synthetic-conversation: yes after the complete brief', scope: 'Create Galaxy Playtester, its starting state, registration and navigation.', changes: [state, definition, catalog, navigation].map(({ path, revisionHash }) => ({ path, revisionHash })) };
+  for (const change of [state, definition, catalog, navigation]) {
+    const result = run('change', 'review', 'repo', change.id, '--file', await request({ expectedRevisionHash: change.revisionHash, decision: 'accept', actor, reason: 'Checked implementation against the already approved brief.', sources: change.sources, approval }));
+    assert.equal(result.status, 'accepted');
+    assert.deepEqual(result.agentReview.approval, approval);
+    assert.equal(result.humanReview, undefined);
+  }
+  assert.equal(run('bot', 'resolve', '--id', 'galaxy-playtester', '--scope', 'repo').complete, true);
+  assert.equal(run('read', 'repo', definition.path).memory.humanReviewed, false);
+  const outside = spawnSync(executable, ['change', 'review', 'repo', unrelated.id, '--file', await request({ expectedRevisionHash: unrelated.revisionHash, decision: 'accept', actor, reason: 'Attempt to reuse another scope.', sources: unrelated.sources, approval })], { cwd, encoding: 'utf8', env: environment });
+  assert.equal(JSON.parse(outside.stderr).error.code, 'APPROVAL_SCOPE_CONFLICT');
+  assert.equal(run('change', 'read', 'repo', unrelated.id).status, 'pending');
   const skillFiles = { okf: ['SKILL.md', 'references/usage.md'], 'okf-librarian': ['SKILL.md', 'references/workflow.md'], 'okf-memory-reviewer': ['SKILL.md', 'references/workflow.md'], 'bot-creator': ['SKILL.md', 'references/definition.md'], bot: ['SKILL.md', 'references/memory.md', 'agents/openai.yaml'] };
   for (const name of Object.keys(skillFiles)) {
     const installed = run('skill', 'install', resolve(cwd, 'skills'), '--name', name);
@@ -155,7 +178,7 @@ try {
   assert.match(botSkill.slice(0, botSkill.indexOf('\n---', 4)), /^disable-model-invocation: true\r?$/m);
   assert.match(await readFile(resolve(cwd, 'skills', 'bot', 'agents', 'openai.yaml'), 'utf8'), /^policy:\r?\n {2}allow_implicit_invocation: false\r?$/m);
   assert.doesNotMatch(await readFile(resolve('skills', 'bot-creator', 'SKILL.md'), 'utf8'), /disable-model-invocation/);
-  console.log(JSON.stringify({ version: 1, platform: process.platform, arch: process.arch, checks: ['standalone-without-node-or-git', 'cli-only', 'discovery', 'bundle-format', 'authoring-template', 'pending-recall', 'review-rejection', 'reversible-removal', 'machine-applicability', 'migration-guide-preview-apply-retry-recovery', 'personal-authorization', 'provider-instructions', 'lock-free-reads', 'embedded-skills', 'bot-skill-manual-only'], passed: true }));
+  console.log(JSON.stringify({ version: 1, platform: process.platform, arch: process.arch, checks: ['standalone-without-node-or-git', 'cli-only', 'discovery', 'bundle-format', 'authoring-template', 'pending-recall', 'review-rejection', 'reversible-removal', 'machine-applicability', 'migration-guide-preview-apply-retry-recovery', 'personal-authorization', 'provider-instructions', 'lock-free-reads', 'single-conversational-approval-bot-registration', 'unrelated-proposal-protection', 'embedded-skills', 'bot-skill-manual-only'], passed: true }));
 } finally {
   await rm(cwd, { recursive: true, force: true });
 }
