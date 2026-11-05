@@ -51,8 +51,11 @@ bot:
     Handoffs: what goes to which collaborator, and where.
     Knowledge and authority: what wins when sources disagree.
     Memory: read and refresh at the agreed points; propose writes with your
-    actual agent identity as actor and persona {bot: ID} in the note; never
-    accept your own proposals or treat pending ones as accepted.
+    actual agent identity as actor and persona {bot: ID} in the note. Check and
+    accept routine supported observations and consolidation yourself within
+    authorized targets. Carry an existing conversational approval through its
+    matching implementation; ask only for a new substantive decision. Never
+    invent human review or treat pending proposals as accepted.
     Corrections and conflicts: what to do when corrected or contradicted.
   collaborators:
     - bot: game1-coordinator
@@ -63,7 +66,7 @@ bot:
       path: game1/playtester
       repository: game1
       read: When the bot is activated and when asked to refresh.
-      write: Propose one note per verified session.
+      write: Propose, check and accept routine notes after a verified session.
     - id: direction
       role: shared
       path: game1/shared/direction.md
@@ -152,5 +155,40 @@ Propose the notes first, then the definition, then the catalog. Each request:
 - A personal library also needs `--authorize-personal`, which standing
   instructions or the user's explicit agreement to this proposal list must
   allow.
-- Core marks every bot catalog and definition change for a person's decision.
-  Leave it pending and report the change IDs.
+- Core marks bot catalogs and definitions as requiring a human decision. The
+  user's confirmed brief supplies that decision; carry it through agent
+  execution below rather than leaving another review chore.
+
+## Complete the approved work
+
+Discover `cli schema change review`. Use your actual agent identity, the exact
+`expectedRevisionHash` and full `sources` from `change read`. Add `approval` for
+the already approved brief, with its conversation reference, concrete scope and
+only the matching implementation paths/revision hashes. Construct this bounded
+list after proposals exist; the user need not approve IDs or hashes. Example:
+
+```json
+{"expectedRevisionHash": "PROPOSAL_REVISION_HASH", "decision": "accept", "actor": {"type": "agent", "id": "YOUR-ACTUAL-RUN-ID"}, "reason": "Checked this implementation against the confirmed brief and sources.", "sources": [], "approval": {"reference": "conversation/session-id: user's yes following the complete brief", "scope": "Create the agreed playtester, register it, and save its sourced starting note and navigation.", "changes": [{"path": "bots/game1-playtester.md", "revisionHash": "PROPOSAL_REVISION_HASH"}]}}
+```
+
+Include all and only your matching approved revisions in `approval.changes` and
+reuse that list for the corresponding review calls. Supporting notes that are
+routine may instead use ordinary agent review. Do not declare a human actor or
+set `operator: true`: the user approved the brief, and you checked the generated
+bytes. History records both facts without granting a human-reviewed trust label.
+This is an attribution of existing approval, not a request for new approval or
+a requirement to prepare another document for the user.
+
+An old approval list cannot accept a changed revision or an unrelated path.
+After a conflict or repair, compare the new bytes to the brief before binding
+the new revision. Storage-only repairs within scope need no further approval;
+substantive deviations need the user's decision about that difference. The CLI
+checks exact revisions and sources; the agent is responsible for judging
+whether implementation matches the brief. Never invent approval from mere
+interest in making a bot or from an incomplete interview.
+
+For a resumed creation, read the already pending proposals and the original
+approved brief, verify they match, and finish their acceptance. Do not re-propose
+unchanged bytes or restart the interview just because an earlier skill stopped
+at a queue. An older CLI without `approval` support needs this repository's
+updated CLI; do not fall back to impersonating a human.

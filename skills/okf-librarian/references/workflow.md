@@ -2,7 +2,10 @@
 
 A dreaming run processes routine memory work on its own and asks the person
 only about changes that need their judgment. Most runs should end with a few
-human decisions and a list of completed agent work, not a long review queue.
+human decisions only when new judgment is needed, not a long review queue.
+Standing authorization to automate routine consolidation is sufficient; do not
+ask for another dreaming request on every run. This skill runs in the existing
+agent session and does not itself start a service or schedule work.
 
 ## Start the run
 
@@ -20,7 +23,8 @@ when they were made. Propose the same bytes again so core records a fresh
 proposal with the current rules; the old one becomes superseded. Outside edits,
 migrations and a person's own proposals stay with the person: core refuses
 agent proposals for those files with `HUMAN_DECISION_PENDING`, so present the
-pending change for a human decision instead.
+pending change for a human decision instead, unless an explicit conversational
+approval already covers that exact change. Do not overwrite protected drafts.
 
 ## Look for work
 
@@ -43,7 +47,8 @@ because its last update is old.
 
 Routine work needs no human decision. Propose it and record your own agent
 review with the reason and evidence. Core accepts an agent review only when the
-change is not human-required.
+change is not human-required. The author may be the reviewer; do not create an
+extra review layer for routine learning.
 
 - Consolidate repeated episodes into a fact or procedure. Create the new memory
   at bronze with its own id, kind and applicability. Cite every episode it uses
@@ -81,8 +86,17 @@ and the evidence:
 - Anything touching a file with a pending outside edit or migration.
 - Contradictions the evidence does not settle, and anything you are unsure about.
 
-Core marks most of these as human-required and rejects an agent review of them.
-Escalate the rest yourself.
+Core marks most of these as human-required. Before escalating, check whether
+the conversation already approved this concrete change. If so, inspect its
+implementation and record agent acceptance with `approval: {reference, scope,
+changes: [{path, revisionHash}]}` as described by `cli schema change review`.
+Bind only matching implementation revisions and the full recorded sources, never
+unrelated pending work. The agent attests that the bytes implement the approved
+scope; the CLI cannot judge that semantic match. Do not declare a human actor or
+claim human review of generated text. Storage repairs within scope need no new
+approval; substantive deviations or unresolved contradictions need a decision
+about the difference. Standing routine-maintenance permission alone does not
+approve changed decision rights, procedures or applicability.
 
 ## Finish
 
